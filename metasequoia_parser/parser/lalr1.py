@@ -157,26 +157,20 @@ class ParserLALR1(ParserBase):
         self.debug = debug
 
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
-        if debug is True:
-            LOGGER.info("[1 / 10] 计算 Item0 对象开始")
+        LOGGER.info("[1 / 10] 计算 Item0 对象开始")
         self.item0_list: List[Item0] = cal_all_item0_list(self.grammar)
-        if debug is True:
-            LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.item0_list)})")
+        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.item0_list)})")
 
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
-        if self.debug is True:
-            LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
+        LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
         self.symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(self.item0_list)
-        if self.debug is True:
-            LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
-                        f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
+        LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
+                    f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
 
         # 从项目列表中获取入口项目
-        if self.debug is True:
-            LOGGER.info("[3 / 10] 从项目列表中获取入口项目开始")
+        LOGGER.info("[3 / 10] 从项目列表中获取入口项目开始")
         self.init_item0 = cal_init_item_from_item_list(self.item0_list)
-        if self.debug is True:
-            LOGGER.info("[3 / 10] 从项目列表中获取入口项目结束")
+        LOGGER.info("[3 / 10] 从项目列表中获取入口项目结束")
 
         # 计算所有非终结符名称的列表
         nonterminal_name_list = list({item0.nonterminal_id for item0 in self.item0_list})
@@ -185,12 +179,10 @@ class ParserLALR1(ParserBase):
         self.nonterminal_all_start_terminal = cal_nonterminal_all_start_terminal(self.grammar, nonterminal_name_list)
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
-        if self.debug is True:
-            LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
+        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = self.cal_core_to_item1_set_hash()
-        if self.debug is True:
-            LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
-                        f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
+        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
+                    f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
 
         super().__init__(grammar, debug=debug)
 
@@ -210,49 +202,37 @@ class ParserLALR1(ParserBase):
         """
 
         # 计算核心项目元组到该项目集的前置项目集的映射表
-        if self.debug is True:
-            LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表开始")
+        LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表开始")
         core_tuple_to_before_item1_set_hash = cal_core_tuple_to_before_item1_set_hash(self.core_tuple_to_item1_set_hash)
-        if self.debug is True:
-            LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表结束")
+        LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表结束")
 
         # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
-        if self.debug is True:
-            LOGGER.info("[6 / 10] 计算项目集核心开始")
+        LOGGER.info("[6 / 10] 计算项目集核心开始")
         concentric_hash = cal_concentric_hash(self.core_tuple_to_item1_set_hash)
-        if self.debug is True:
-            LOGGER.info("[6 / 10] 计算项目集核心结束 "
-                        f"(项目集核心数量 = {len(concentric_hash)})")
+        LOGGER.info("[6 / 10] 计算项目集核心结束 (项目集核心数量 = {len(concentric_hash)})")
 
         # 合并项目集核心相同的项目集（原地更新）
-        if self.debug is True:
-            LOGGER.info("[7 / 10] 合并项目集核心相同的项目集开始")
+        LOGGER.info("[7 / 10] 合并项目集核心相同的项目集开始")
         merge_same_concentric_item1_set(concentric_hash, core_tuple_to_before_item1_set_hash,
                                         self.core_tuple_to_item1_set_hash)
-        if self.debug is True:
-            LOGGER.info("[7 / 10] 合并项目集核心相同的项目集结束 "
-                        f"(合并后关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
+        LOGGER.info("[7 / 10] 合并项目集核心相同的项目集结束 "
+                    f"(合并后关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
-        if self.debug is True:
-            LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
+        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
         core_tuple_to_status_hash = {core_tuple: i
                                      for i, core_tuple in
                                      enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
-        if self.debug is True:
-            LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
+        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
 
         # 生成初始状态
-        if self.debug is True:
-            LOGGER.info("[9 / 10] 生成初始状态开始")
+        LOGGER.info("[9 / 10] 生成初始状态开始")
         init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
         entrance_status = core_tuple_to_status_hash[(init_item1,)]
-        if self.debug is True:
-            LOGGER.info("[9 / 10] 生成初始状态结束")
+        LOGGER.info("[9 / 10] 生成初始状态结束")
 
         # 构造 ACTION 表 + GOTO 表
-        if self.debug is True:
-            LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
+        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
         accept_item0 = cal_accept_item_from_item_list(self.item0_list)
         accept_item1 = Item1.create_by_item0(accept_item0, self.grammar.end_terminal)
         accept_item1_set = None
@@ -266,8 +246,7 @@ class ParserLALR1(ParserBase):
             core_tuple_to_item1_set_hash=self.core_tuple_to_item1_set_hash,
             accept_item1_set=accept_item1_set
         )
-        if self.debug is True:
-            LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
+        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
 
         return table, entrance_status
 
@@ -374,8 +353,6 @@ class ParserLALR1(ParserBase):
         List[Item1]
             项目集闭包中包含的项目列表
         """
-        n_terminal = self.grammar.n_terminal  # 【性能】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
-
         # 初始化项目集闭包中包含的其他项目列表
         item_set: Set[Item1] = set()
 
