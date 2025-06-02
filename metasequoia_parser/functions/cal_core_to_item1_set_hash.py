@@ -3,7 +3,7 @@
 """
 
 import collections
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import Item0
@@ -12,6 +12,7 @@ from metasequoia_parser.common import Item1Set
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
 from metasequoia_parser.functions.closure_item1 import closure_item1
 from metasequoia_parser.utils import LOGGER
+import cProfile
 
 __all__ = [
     "cal_core_to_item1_set_hash"
@@ -22,7 +23,8 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
                                item0_list: List[Item0],
                                init_item0: Item0,
                                symbol_start_item0_list_hash: Dict[int, List[Item0]],
-                               debug: bool = False
+                               debug: bool = False,
+                               profile_limit: Optional[int] = None
                                ) -> Dict[Tuple[Item1, ...], Item1Set]:
     # pylint: disable=R0914
     """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
@@ -39,6 +41,8 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
         键为非终结符名称，值为非终结符对应开始项目的列表
     debug : bool, default = False
         是否打印调试模式日志
+    profile_limit : Optional[int], default = None
+        广度优先搜索最大次数，如果为 None 则没有限制
 
     Returns
     -------
@@ -66,9 +70,22 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
     # 初始化项目集闭包之间的关联关系（采用个核心项目元组记录）
     item1_set_relation = []
 
+    # 【调试模式】cProfile 性能分析
+    profiler = None
+    profiler_print = False
+    if profile_limit is not None:
+        profiler = cProfile.Profile()
+        profiler.enable()
+
     # 广度优先搜索遍历所有项目集闭包
     idx = 0
     while queue:
+        # 【调试】打印 cProfile 性能分析结果
+        if profile_limit is not None and profiler_print is False and idx >= profile_limit:
+            profiler.disable()
+            profiler.print_stats(sort="time")
+            profiler_print = True
+
         core_tuple = queue.popleft()
 
         if debug is True:
@@ -107,6 +124,11 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
                 visited.add(successor_core_tuple)
 
     # print("len(visited):", len(visited))
+
+    # 【调试】打印 cProfile 性能分析结果
+    if profiler_print is False:
+        profiler.disable()
+        profiler.print_stats(sort="time")
 
     # 构造项目集之间的关系
     for from_core_tuple, successor_symbol, to_core_tuple in item1_set_relation:

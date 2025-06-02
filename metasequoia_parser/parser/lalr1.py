@@ -3,7 +3,7 @@ LR(1) 文法解析器
 """
 
 import collections
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import Item1
@@ -135,8 +135,18 @@ def merge_same_concentric_item1_set(
 class ParserLALR1(ParserBase):
     """LALR(1) 解析器"""
 
-    def __init__(self, grammar: Grammar, debug: bool = False):
+    def __init__(self, grammar: Grammar, debug: bool = False, profile_4: Optional[int] = None):
+        """
+
+        Parameters
+        ----------
+        debug : bool, default = False
+            【调试】是否开启 Debug 模式日志
+        profile_4 : Optional[int], default = None
+            【调试】如果不为 None 则开启步骤 4 的 cProfile 性能分析，且广度优先搜索的最大撒次数为 profile_4；如果为 None 则不开启性能分析
+        """
         self.symbol_to_start_item_list_hash = None
+        self._profile_4 = profile_4
         super().__init__(grammar, debug=debug)
 
     def create_action_table_and_goto_table(self):
@@ -180,7 +190,8 @@ class ParserLALR1(ParserBase):
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         core_tuple_to_item1_set_hash = cal_core_to_item1_set_hash(self.grammar, item0_list, init_item0,
-                                                                  symbol_to_start_item_list_hash, debug=self.debug)
+                                                                  symbol_to_start_item_list_hash, debug=self.debug,
+                                                                  profile_limit=self._profile_4)
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                         f"(关系映射数量 = {len(core_tuple_to_item1_set_hash)})")
