@@ -3,6 +3,7 @@
 """
 
 from metasequoia_parser import compiler
+from metasequoia_parser import functions as _functions
 from metasequoia_parser import lexical
 from metasequoia_parser import parser
 from metasequoia_parser import template
