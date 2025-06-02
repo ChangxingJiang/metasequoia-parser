@@ -109,11 +109,13 @@ def closure_item1(grammar: Grammar,
 
         # 将等价项目组中需要继续寻找等价项目的添加到队列
         for sub_item1 in sub_item_set:
-            if len(sub_item1.item0.after_handle) == 0:
+            after_handle = sub_item1.item0.after_handle
+            if not after_handle:
                 continue  # 跳过匹配 %empty 的项目
 
-            if (sub_item1.item0.after_handle, sub_item1.lookahead) not in visited_symbol_set:
-                visited_symbol_set.add((sub_item1.item0.after_handle, sub_item1.lookahead))
-                queue.append((sub_item1.item0.after_handle, sub_item1.lookahead))
+            lookahead = sub_item1.lookahead
+            if (after_handle, lookahead) not in visited_symbol_set:
+                visited_symbol_set.add((after_handle, lookahead))
+                queue.append((after_handle, lookahead))
 
     return list(item_set)
