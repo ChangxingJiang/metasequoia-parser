@@ -89,6 +89,9 @@ class Item0(ItemBase):
     rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
 
     # -------------------- 缓存器 --------------------
+    # __repr__() 函数的返回值：
+    # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
+    repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     @staticmethod
     def create(reduce_name: int,
@@ -134,6 +137,9 @@ class Item0(ItemBase):
         Item0
             构造的 Item0 文法项目对象
         """
+        before_symbol_str = " ".join(str(symbol) for symbol in before_handle)
+        after_symbol_str = " ".join(str(symbol) for symbol in after_handle)
+        repr_value = f"{reduce_name}->{before_symbol_str}·{after_symbol_str}"
         return Item0(
             nonterminal_id=reduce_name,
             before_handle=tuple(before_handle),
@@ -144,14 +150,13 @@ class Item0(ItemBase):
             successor_item=successor_item,
             sr_priority_idx=sr_priority_idx,
             sr_combine_type=sr_combine_type,
-            rr_priority_idx=rr_priority_idx
+            rr_priority_idx=rr_priority_idx,
+            repr_value=repr_value
         )
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
-        before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
-        after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
-        return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str}"
+        return self.repr_value
 
     def get_symbol_id(self) -> int:
         """获取符号 ID"""
@@ -215,10 +220,14 @@ class Item1(ItemBase):
     successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 展望符（终结符）
 
-    _INSTANCE_HASH = {}
+    # __repr__() 函数的返回值
+    # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
+    repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
+
+    _INSTANCE_HASH = {}  # 享元模式缓存器
 
     @staticmethod
-    def create_by_item0(item0: Item0, lookahead=lookahead) -> "Item1":
+    def create_by_item0(item0: Item0, lookahead) -> "Item1":
         """采用享元模式，通过 Item0 对象和 lookahead 构造 Item1 对象
 
         Parameters
@@ -236,6 +245,7 @@ class Item1(ItemBase):
         item1 = Item1._INSTANCE_HASH.get((item0, lookahead))
         if item1 is not None:
             return item1
+
         # item_id = len(Item1._INSTANCE_HASH)
         successor_item1 = None
         if item0.successor_item is not None:
@@ -243,7 +253,8 @@ class Item1(ItemBase):
         item1 = Item1(
             item0=item0,
             successor_item=successor_item1,
-            lookahead=lookahead
+            lookahead=lookahead,
+            repr_value=f"{item0.repr_value},{lookahead}"  # 计算 __repr__ 函数的返回值
         )
         Item1._INSTANCE_HASH[(item0, lookahead)] = item1
         return item1
@@ -258,9 +269,7 @@ class Item1(ItemBase):
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
-        before_symbol_str = " ".join(str(symbol) for symbol in self.item0.before_handle)
-        after_symbol_str = " ".join(str(symbol) for symbol in self.item0.after_handle)
-        return f"{self.item0.nonterminal_id}->{before_symbol_str}·{after_symbol_str},{self.lookahead}"
+        return self.repr_value
 
     def get_symbol_id(self) -> int:
         """获取符号 ID"""
