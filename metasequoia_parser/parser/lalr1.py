@@ -353,12 +353,15 @@ class ParserLALR1(ParserBase):
         visited_symbol_set = set()
         queue = collections.deque()
         for item1 in core_tuple:
-            if item1.item0.item_type in ACCEPT_OR_REDUCE:
-                continue  # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
+            after_handle = item1.item0.after_handle
+
+            # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
+            if not after_handle:
+                continue
 
             # 将句柄之后的符号列表 + 展望符添加到队列中
-            visited_symbol_set.add((item1.item0.after_handle, item1.lookahead))
-            queue.append((item1.item0.after_handle, item1.lookahead))
+            visited_symbol_set.add((after_handle, item1.lookahead))
+            queue.append((after_handle, item1.lookahead))
 
         # 广度优先搜索所有的等价项目组
         while queue:
@@ -405,7 +408,8 @@ class ParserLALR1(ParserBase):
         Set[Item1]
             等价 LR(1) 项目的集合
         """
-        n_terminal = self.grammar.n_terminal  # 【性能】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
+        n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
+        len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
 
         # 如果开头符号是终结符，则不存在等价项目
         # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
@@ -420,7 +424,7 @@ class ParserLALR1(ParserBase):
             # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
             i = 1
             is_stop = False  # 是否已经找到不能匹配 %empty 的非终结符或终结符
-            while i < len(after_handle):  # 向后逐个遍历符号，寻找展望符
+            while i < len_after_handle:  # 向后逐个遍历符号，寻找展望符
                 next_symbol = after_handle[i]
 
                 # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
