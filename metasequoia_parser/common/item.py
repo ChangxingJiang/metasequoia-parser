@@ -54,21 +54,22 @@ class ItemBase(abc.ABC):
         连接到的后继项目对象
     """
 
-    # 项目的基本信息（节点属性）
-    nonterminal_id: int = dataclasses.field(kw_only=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
-    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之前的符号名称的列表
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之后的符号名称的列表
-    item_type: ItemType = dataclasses.field(kw_only=True)  # 项目类型
-    action: Callable = dataclasses.field(kw_only=True)  # 项目的规约行为函数
+    # -------------------- 项目的基本信息（节点属性）--------------------
+    nonterminal_id: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
+    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=True, compare=True)  # 在句柄之前的符号名称的列表
+    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=True, compare=True)  # 在句柄之后的符号名称的列表
+    item_type: ItemType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目类型
+    action: Callable = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目的规约行为函数
 
-    # 项目的关联关系（节点出射边）
-    successor_symbol: Optional[int] = dataclasses.field(kw_only=True)  # 能够连接到后继项目的符号名称
-    successor_item: Optional["ItemBase"] = dataclasses.field(kw_only=True)  # 连接到的后继项目对象
+    # -------------------- 项目的关联关系（节点出射边）--------------------
+    # 能够连接到后继项目的符号名称（即 after_handle 中的第 1 个元素）
+    successor_symbol: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)
+    successor_item: Optional["ItemBase"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
 
-    # 项目的 SR 优先级、结合方向和 RR 优先级
-    sr_priority_idx: int = dataclasses.field(kw_only=True)  # 生成式的 SR 优先级序号（越大越优先）
-    sr_combine_type: CombineType = dataclasses.field(kw_only=True)  # 生成式的 SR 合并顺序
-    rr_priority_idx: int = dataclasses.field(kw_only=True)  # 生成式的 RR 优先级序号（越大越优先）
+    # -------------------- 项目的 SR 优先级、结合方向和 RR 优先级 --------------------
+    sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
+    sr_combine_type: CombineType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 合并顺序
+    rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
 
     @staticmethod
     @abc.abstractmethod
