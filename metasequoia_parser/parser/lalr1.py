@@ -331,7 +331,10 @@ class ParserLALR1(ParserBase):
         # pylint: disable=R0914
         """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
 
-        等价 LR(1) 项目
+        【性能设计】这里采用广度优先搜索，是因为当 core_tuple 中包含多个 LR(1) 项目时，各个 LR(1) 项目的等价 LR(1) 项目之间往往会存在大量相同
+        的元素；如果采用深度优先搜索，那么在查询缓存、合并结果、检查搜索条件是否相同时，会进行非常多的 Tuple[Item1, ...] 比较，此时会消耗更多的性
+        能。然而，不同 core_tuple 之间，相同的 LR(1) 项目的数量可能反而较少。因此，虽然广度优先搜索在时间复杂度上劣于深度优先搜索，但是经过测试在
+        当前场景下的性能是优于深度优先搜索的。
 
         Parameters
         ----------
@@ -368,10 +371,11 @@ class ParserLALR1(ParserBase):
             )
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            item_set |= sub_item_set
+            diff_set = sub_item_set - item_set
+            item_set |= diff_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
-            for sub_item1 in sub_item_set:
+            for sub_item1 in diff_set:
                 after_handle = sub_item1.item0.after_handle
                 if not after_handle:
                     continue  # 跳过匹配 %empty 的项目
@@ -384,8 +388,10 @@ class ParserLALR1(ParserBase):
         return list(item_set)
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int):
-        """计算单层的等价 LR(1) 项目
+    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[Item1]:
+        """计算 item1 单层的等价 LR(1) 项目
+
+        计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
 
         Parameters
         ----------
@@ -420,13 +426,13 @@ class ParserLALR1(ParserBase):
                 # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
                 # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
                 if next_symbol < n_terminal:
-                    sub_item_set.add(Item1.create_by_item0(item0, next_symbol))
+                    sub_item_set.add(Item1.create_by_item0(item0, next_symbol))  # 自生后继符
                     is_stop = True
                     break
 
                 # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
                 for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                    sub_item_set.add(Item1.create_by_item0(item0, start_terminal))
+                    sub_item_set.add(Item1.create_by_item0(item0, start_terminal))  # 自生后继符
 
                 # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
                 if not self.grammar.is_maybe_empty(next_symbol):
@@ -437,6 +443,6 @@ class ParserLALR1(ParserBase):
 
             # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
             if is_stop is False:
-                sub_item_set.add(Item1.create_by_item0(item0, lookahead))
+                sub_item_set.add(Item1.create_by_item0(item0, lookahead))  # 继承后继符
 
         return sub_item_set
