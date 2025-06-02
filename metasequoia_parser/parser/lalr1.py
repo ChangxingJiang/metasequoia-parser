@@ -180,7 +180,7 @@ class ParserLALR1(ParserBase):
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         core_tuple_to_item1_set_hash = cal_core_to_item1_set_hash(self.grammar, item0_list, init_item0,
-                                                                  symbol_to_start_item_list_hash)
+                                                                  symbol_to_start_item_list_hash, debug=self.debug)
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                         f"(关系映射数量 = {len(core_tuple_to_item1_set_hash)})")

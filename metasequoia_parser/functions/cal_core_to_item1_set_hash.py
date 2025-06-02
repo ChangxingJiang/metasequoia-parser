@@ -11,6 +11,7 @@ from metasequoia_parser.common import Item1
 from metasequoia_parser.common import Item1Set
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
 from metasequoia_parser.functions.closure_item1 import closure_item1
+from metasequoia_parser.utils import LOGGER
 
 __all__ = [
     "cal_core_to_item1_set_hash"
@@ -20,7 +21,8 @@ __all__ = [
 def cal_core_to_item1_set_hash(grammar: Grammar,
                                item0_list: List[Item0],
                                init_item0: Item0,
-                               symbol_start_item0_list_hash: Dict[int, List[Item0]]
+                               symbol_start_item0_list_hash: Dict[int, List[Item0]],
+                               debug: bool = False
                                ) -> Dict[Tuple[Item1, ...], Item1Set]:
     # pylint: disable=R0914
     """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
@@ -35,6 +37,8 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
         项目集闭包的核心项目（最高层级项目）
     symbol_start_item0_list_hash : Dict[int, List[Item0]]
         键为非终结符名称，值为非终结符对应开始项目的列表
+    debug : bool, default = False
+        是否打印调试模式日志
 
     Returns
     -------
@@ -66,7 +70,10 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
     idx = 0
     while queue:
         core_tuple = queue.popleft()
-        # print(f"正在广度有限搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
+
+        if debug is True:
+            LOGGER.info(f"正在广度有限搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
+
         idx += 1
 
         # 根据项目集核心项目元组生成项目集闭包中包含的其他项目列表
