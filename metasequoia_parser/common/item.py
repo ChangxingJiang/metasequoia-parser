@@ -261,9 +261,9 @@ class Item1(ItemBase):
         if item1 is not None:
             return item1
 
-        successor_item1 = None
-        if item0.successor_item is not None:
-            successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
+        successor_item1 = (Item1.create_by_item0(item0.successor_item, lookahead)
+                           if item0.successor_item is not None else None)
+
         item1 = Item1(
             id=len(Item1._INSTANCE_HASH),
             item0=item0,
