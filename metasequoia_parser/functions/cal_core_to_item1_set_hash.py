@@ -2,6 +2,7 @@
 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
 """
 
+import cProfile
 import collections
 from typing import Dict, List, Optional, Tuple
 
@@ -12,7 +13,6 @@ from metasequoia_parser.common import Item1Set
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
 from metasequoia_parser.functions.closure_item1 import closure_item1
 from metasequoia_parser.utils import LOGGER
-import cProfile
 
 __all__ = [
     "cal_core_to_item1_set_hash"
@@ -126,7 +126,7 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
     # print("len(visited):", len(visited))
 
     # 【调试】打印 cProfile 性能分析结果
-    if profiler_print is False:
+    if profile_limit is not None and profiler_print is False:
         profiler.disable()
         profiler.print_stats(sort="time")
 
