@@ -214,7 +214,7 @@ def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]
     return result_list
 
 
-def compile_lalr1(parser: ParserLALR1, import_list: List[str]) -> List[str]:
+def compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: bool = False) -> List[str]:
     # pylint: disable=R0912
     # pylint: disable=R0914
     # pylint: disable=R0915

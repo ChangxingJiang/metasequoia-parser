@@ -18,8 +18,9 @@ __all__ = [
 class ParserBase(abc.ABC):
     """基于 ACTION TABLE 和 GOTO TABLE 的解析器的抽象基类"""
 
-    def __init__(self, grammar: Grammar):
+    def __init__(self, grammar: Grammar, debug: bool = False):
         self.grammar = grammar
+        self.debug = debug
 
         # 计算 ACTION TABLE 和 GROUP TABLE 以及初始状态
         self.table, self.entrance_status = self.create_action_table_and_goto_table()
