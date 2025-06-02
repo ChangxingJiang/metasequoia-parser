@@ -4,7 +4,8 @@ LR(1) 文法解析器
 
 import cProfile
 import collections
-from typing import Dict, List, Optional, Set, Tuple
+from functools import lru_cache
+from typing import Dict, List, Set, Tuple
 
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import Item0
@@ -20,7 +21,6 @@ from metasequoia_parser.functions import cal_symbol_to_start_item_list_hash
 from metasequoia_parser.functions import create_lr_parsing_table_use_lalr1
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
 from metasequoia_parser.utils import LOGGER
-from functools import lru_cache
 
 # 接受（ACCEPT）类型或规约（REDUCE）类型的集合
 ACCEPT_OR_REDUCE = {ItemType.ACCEPT, ItemType.REDUCE}
@@ -142,7 +142,7 @@ def merge_same_concentric_item1_set(
 class ParserLALR1(ParserBase):
     """LALR(1) 解析器"""
 
-    def __init__(self, grammar: Grammar, debug: bool = False, profile: bool=False):
+    def __init__(self, grammar: Grammar, debug: bool = False, profile: bool = False):
         """
 
         Parameters
@@ -256,7 +256,7 @@ class ParserLALR1(ParserBase):
 
         if self.profile:
             self.profiler.disable()
-            self.profiler.print_stats(sort="time")
+            self.profiler.print_stats(sort="cumtime")
 
         return table, entrance_status
 
