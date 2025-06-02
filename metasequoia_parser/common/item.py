@@ -5,7 +5,6 @@
 import abc
 import dataclasses
 import enum
-from functools import cached_property
 from typing import Callable, List, Optional, Tuple
 
 from metasequoia_parser.common.grammar import CombineType
@@ -210,6 +209,8 @@ class Item1(ItemBase):
         连接到的后继项目对象
     """
 
+    # id: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # Item1 项目集 ID
+
     item0: Item0 = dataclasses.field(kw_only=True, hash=True, compare=True)  # 连接到的后继项目对象
     successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 展望符（终结符）
@@ -232,16 +233,20 @@ class Item1(ItemBase):
         Item1
             构造的 Item1 文法项目对象
         """
-        if (item0, lookahead) not in Item1._INSTANCE_HASH:
-            successor_item1 = None
-            if item0.successor_item is not None:
-                successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
-            Item1._INSTANCE_HASH[(item0, lookahead)] = Item1(
-                item0=item0,
-                successor_item=successor_item1,
-                lookahead=lookahead
-            )
-        return Item1._INSTANCE_HASH[(item0, lookahead)]
+        item1 = Item1._INSTANCE_HASH.get((item0, lookahead))
+        if item1 is not None:
+            return item1
+        # item_id = len(Item1._INSTANCE_HASH)
+        successor_item1 = None
+        if item0.successor_item is not None:
+            successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
+        item1 = Item1(
+            item0=item0,
+            successor_item=successor_item1,
+            lookahead=lookahead
+        )
+        Item1._INSTANCE_HASH[(item0, lookahead)] = item1
+        return item1
 
     def get_centric(self) -> ItemCentric:
         """获取项目核心：适用于 LALR(1) 解析器的同心项目集计算"""
