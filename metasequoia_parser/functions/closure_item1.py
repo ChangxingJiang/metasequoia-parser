@@ -47,12 +47,12 @@ def closure_item1(grammar: Grammar,
     visited_symbol_set = set()
     queue = collections.deque()
     for item1 in core_tuple:
-        if item1.item_type in {ItemType.ACCEPT, ItemType.REDUCE}:
+        if item1.item0.item_type in {ItemType.ACCEPT, ItemType.REDUCE}:
             continue  # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
 
         # 将句柄之后的符号列表 + 展望符添加到队列中
-        visited_symbol_set.add((item1.after_handle, item1.lookahead))
-        queue.append((item1.after_handle, item1.lookahead))
+        visited_symbol_set.add((item1.item0.after_handle, item1.lookahead))
+        queue.append((item1.item0.after_handle, item1.lookahead))
 
     # 广度优先搜索所有的等价项目组
     while queue:
@@ -102,11 +102,11 @@ def closure_item1(grammar: Grammar,
 
         # 将等价项目组中需要继续寻找等价项目的添加到队列
         for sub_item1 in sub_item_set:
-            if len(sub_item1.after_handle) == 0:
+            if len(sub_item1.item0.after_handle) == 0:
                 continue  # 跳过匹配 %empty 的项目
 
-            if (sub_item1.after_handle, sub_item1.lookahead) not in visited_symbol_set:
-                visited_symbol_set.add((sub_item1.after_handle, sub_item1.lookahead))
-                queue.append((sub_item1.after_handle, sub_item1.lookahead))
+            if (sub_item1.item0.after_handle, sub_item1.lookahead) not in visited_symbol_set:
+                visited_symbol_set.add((sub_item1.item0.after_handle, sub_item1.lookahead))
+                queue.append((sub_item1.item0.after_handle, sub_item1.lookahead))
 
     return list(item_set)

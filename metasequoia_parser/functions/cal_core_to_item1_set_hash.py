@@ -104,8 +104,8 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
         # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
         successor_group = collections.defaultdict(set)
         for item1 in item1_set.all_item_list:
-            if item1.successor_symbol is not None:
-                successor_group[item1.successor_symbol].add(item1.successor_item)
+            if item1.item0.successor_symbol is not None:
+                successor_group[item1.item0.successor_symbol].add(item1.successor_item)
 
         # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
         successor_core_tuple_hash = {}
