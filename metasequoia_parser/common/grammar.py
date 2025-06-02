@@ -555,7 +555,7 @@ class Grammar:
 
     def is_terminal(self, symbol: int) -> bool:
         """如果 id 是终结符则返回 True，否则返回 False"""
-        return symbol < self.n_terminal
+        return symbol < self._n_terminal
 
     def is_maybe_empty(self, symbol: int) -> bool:
         """如果 symbol 为非终结符，且可能匹配 %empty 则返回 True；否则返回 False"""

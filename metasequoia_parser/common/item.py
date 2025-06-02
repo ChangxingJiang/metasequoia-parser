@@ -71,10 +71,18 @@ class Item0(ItemBase):
         连接到的后继项目对象
     """
 
+    # -------------------- 性能设计 --------------------
+    # Item0 项目集唯一 ID
+    # 通过在构造时添加 Item0 项目集的唯一 ID，从而将 Item0 项目集的哈希计算优化为直接获取唯一 ID
+    id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
+
+    # 唯一 ID 生成计数器
+    _INSTANCE_CNT = 0
+
     # -------------------- 项目的基本信息（节点属性）--------------------
-    nonterminal_id: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
-    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=True, compare=True)  # 在句柄之前的符号名称的列表
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=True, compare=True)  # 在句柄之后的符号名称的列表
+    nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
+    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之前的符号名称的列表
+    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之后的符号名称的列表
     item_type: ItemType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目类型
     action: Callable = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目的规约行为函数
 
@@ -88,8 +96,7 @@ class Item0(ItemBase):
     sr_combine_type: CombineType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 合并顺序
     rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
 
-    # -------------------- 缓存器 --------------------
-    # __repr__() 函数的返回值：
+    # 【性能设计】__repr__() 函数的返回值：
     # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
     repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
 
@@ -140,7 +147,9 @@ class Item0(ItemBase):
         before_symbol_str = " ".join(str(symbol) for symbol in before_handle)
         after_symbol_str = " ".join(str(symbol) for symbol in after_handle)
         repr_value = f"{reduce_name}->{before_symbol_str}·{after_symbol_str}"
+        Item0._INSTANCE_CNT += 1
         return Item0(
+            id=Item0._INSTANCE_CNT,
             nonterminal_id=reduce_name,
             before_handle=tuple(before_handle),
             after_handle=tuple(after_handle),
@@ -214,17 +223,23 @@ class Item1(ItemBase):
         连接到的后继项目对象
     """
 
-    # id: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # Item1 项目集 ID
+    # -------------------- 性能设计 --------------------
+    # 【性能设计】Item1 项目集唯一 ID
+    # 通过在构造时添加 Item1 项目集的唯一 ID，从而将 Item1 项目集的哈希计算优化为直接获取唯一 ID
+    id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
-    item0: Item0 = dataclasses.field(kw_only=True, hash=True, compare=True)  # 连接到的后继项目对象
-    successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
-    lookahead: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 展望符（终结符）
-
-    # __repr__() 函数的返回值
+    # 【性能设计】__repr__() 函数的返回值：
     # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
     repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
 
-    _INSTANCE_HASH = {}  # 享元模式缓存器
+    # 【性能设计】享元模式缓存器
+    # 通过享元模式，避免 Item1 对象被重复构造，以提高 Item1 对象的构造速度；通过这个字典也可以用于唯一 ID 的构造计数
+    _INSTANCE_HASH = {}
+
+    # -------------------- 项目的基本属性 --------------------
+    item0: Item0 = dataclasses.field(kw_only=True, hash=False, compare=True)  # 连接到的后继项目对象
+    lookahead: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 展望符（终结符）
+    successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
 
     @staticmethod
     def create_by_item0(item0: Item0, lookahead) -> "Item1":
@@ -246,11 +261,11 @@ class Item1(ItemBase):
         if item1 is not None:
             return item1
 
-        # item_id = len(Item1._INSTANCE_HASH)
         successor_item1 = None
         if item0.successor_item is not None:
             successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
         item1 = Item1(
+            id=len(Item1._INSTANCE_HASH),
             item0=item0,
             successor_item=successor_item1,
             lookahead=lookahead,
