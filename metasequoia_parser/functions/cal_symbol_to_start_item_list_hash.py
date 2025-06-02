@@ -30,6 +30,6 @@ def cal_symbol_to_start_item_list_hash(item_list: List[T]) -> Dict[int, List[T]]
     """
     symbol_to_start_item_list_hash: Dict[int, List[T]] = collections.defaultdict(list)
     for item in item_list:
-        if len(item.before_handle) == 0:
-            symbol_to_start_item_list_hash[item.nonterminal_id].append(item)
+        if len(item.get_before_handle()) == 0:
+            symbol_to_start_item_list_hash[item.get_symbol_id()].append(item)
     return symbol_to_start_item_list_hash

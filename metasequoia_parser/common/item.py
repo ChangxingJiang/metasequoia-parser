@@ -80,6 +80,26 @@ class ItemBase(abc.ABC):
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
 
+    @abc.abstractmethod
+    def get_symbol_id(self) -> int:
+        """获取符号 ID"""
+
+    @abc.abstractmethod
+    def get_before_handle(self) -> Tuple[int, ...]:
+        """获取句柄之前的符号名称的列表"""
+
+    @abc.abstractmethod
+    def get_after_handle(self) -> Tuple[int, ...]:
+        """获取句柄之后的符号名称的列表"""
+
+    @abc.abstractmethod
+    def is_init(self) -> bool:
+        """是否为入口项目"""
+
+    @abc.abstractmethod
+    def is_accept(self) -> bool:
+        """是否为接受项目"""
+
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
 class Item0(ItemBase):
@@ -155,6 +175,26 @@ class Item0(ItemBase):
         before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
         after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
         return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str}"
+
+    def get_symbol_id(self) -> int:
+        """获取符号 ID"""
+        return self.nonterminal_id
+
+    def get_before_handle(self) -> Tuple[int, ...]:
+        """获取句柄之前的符号名称的列表"""
+        return self.before_handle
+
+    def get_after_handle(self) -> Tuple[int, ...]:
+        """获取句柄之后的符号名称的列表"""
+        return self.after_handle
+
+    def is_init(self) -> bool:
+        """是否为入口项目"""
+        return self.item_type == ItemType.INIT
+
+    def is_accept(self) -> bool:
+        """是否为接收项目"""
+        return self.item_type == ItemType.ACCEPT
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
@@ -303,3 +343,23 @@ class Item1(ItemBase):
         before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
         after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
         return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str},{self.lookahead}"
+
+    def get_symbol_id(self) -> int:
+        """获取符号 ID"""
+        return self.nonterminal_id
+
+    def get_before_handle(self) -> Tuple[int, ...]:
+        """获取句柄之前的符号名称的列表"""
+        return self.before_handle
+
+    def get_after_handle(self) -> Tuple[int, ...]:
+        """获取句柄之后的符号名称的列表"""
+        return self.after_handle
+
+    def is_init(self) -> bool:
+        """是否为入口项目"""
+        return self.item_type == ItemType.INIT
+
+    def is_accept(self) -> bool:
+        """是否为接收项目"""
+        return self.item_type == ItemType.ACCEPT
