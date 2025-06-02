@@ -142,19 +142,25 @@ def merge_same_concentric_item1_set(
 class ParserLALR1(ParserBase):
     """LALR(1) 解析器"""
 
-    def __init__(self, grammar: Grammar, debug: bool = False, profile_4: Optional[int] = None):
+    def __init__(self, grammar: Grammar, debug: bool = False, profile: bool=False):
         """
 
         Parameters
         ----------
         debug : bool, default = False
             【调试】是否开启 Debug 模式日志
-        profile_4 : Optional[int], default = None
+        profile : Optional[int], default = None
             【调试】如果不为 None 则开启步骤 4 的 cProfile 性能分析，且广度优先搜索的最大撒次数为 profile_4；如果为 None 则不开启性能分析
         """
-        self._profile_4 = profile_4
+        self.profile = profile
         self.grammar = grammar
         self.debug = debug
+
+        # 【调试模式】cProfile 性能分析
+        self.profiler = None
+        if self.profile:
+            self.profiler = cProfile.Profile()
+            self.profiler.enable()
 
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
@@ -209,7 +215,7 @@ class ParserLALR1(ParserBase):
         # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
         LOGGER.info("[6 / 10] 计算项目集核心开始")
         concentric_hash = cal_concentric_hash(self.core_tuple_to_item1_set_hash)
-        LOGGER.info("[6 / 10] 计算项目集核心结束 (项目集核心数量 = {len(concentric_hash)})")
+        LOGGER.info(f"[6 / 10] 计算项目集核心结束 (项目集核心数量 = {len(concentric_hash)})")
 
         # 合并项目集核心相同的项目集（原地更新）
         LOGGER.info("[7 / 10] 合并项目集核心相同的项目集开始")
@@ -248,6 +254,10 @@ class ParserLALR1(ParserBase):
         )
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
 
+        if self.profile:
+            self.profiler.disable()
+            self.profiler.print_stats(sort="time")
+
         return table, entrance_status
 
     def cal_core_to_item1_set_hash(self) -> Dict[Tuple[Item1, ...], Item1Set]:
@@ -266,22 +276,9 @@ class ParserLALR1(ParserBase):
         # 初始化项目集闭包之间的关联关系（采用个核心项目元组记录）
         item1_set_relation = []
 
-        # 【调试模式】cProfile 性能分析
-        profiler = None
-        profiler_print = False
-        if self._profile_4 is not None:
-            profiler = cProfile.Profile()
-            profiler.enable()
-
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue:
-            # 【调试】打印 cProfile 性能分析结果
-            if self._profile_4 is not None and profiler_print is False and idx >= self._profile_4:
-                profiler.disable()
-                profiler.print_stats(sort="time")
-                profiler_print = True
-
             core_tuple = queue.popleft()
 
             if self.debug is True:
@@ -317,13 +314,6 @@ class ParserLALR1(ParserBase):
                 if successor_core_tuple not in visited:
                     queue.append(successor_core_tuple)
                     visited.add(successor_core_tuple)
-
-        # print("len(visited):", len(visited))
-
-        # 【调试】打印 cProfile 性能分析结果
-        if self._profile_4 is not None and profiler_print is False:
-            profiler.disable()
-            profiler.print_stats(sort="time")
 
         # 构造项目集之间的关系
         for from_core_tuple, successor_symbol, to_core_tuple in item1_set_relation:
