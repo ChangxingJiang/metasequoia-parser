@@ -5,6 +5,7 @@
 import abc
 import dataclasses
 import enum
+from functools import cached_property
 from typing import Callable, List, Optional, Tuple
 
 from metasequoia_parser.common.grammar import CombineType
@@ -87,6 +88,8 @@ class Item0(ItemBase):
     sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
     sr_combine_type: CombineType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 合并顺序
     rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
+
+    # -------------------- 缓存器 --------------------
 
     @staticmethod
     def create(reduce_name: int,
@@ -211,9 +214,11 @@ class Item1(ItemBase):
     successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=True, compare=True)  # 展望符（终结符）
 
+    _INSTANCE_HASH = {}
+
     @staticmethod
     def create_by_item0(item0: Item0, lookahead=lookahead) -> "Item1":
-        """使用 Item0 构造 Item1
+        """采用享元模式，通过 Item0 对象和 lookahead 构造 Item1 对象
 
         Parameters
         ----------
@@ -227,15 +232,16 @@ class Item1(ItemBase):
         Item1
             构造的 Item1 文法项目对象
         """
-        if item0.successor_item is not None:
-            successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
-        else:
-            successor_item1 = item0.successor_item
-        return Item1(
-            item0=item0,
-            successor_item=successor_item1,
-            lookahead=lookahead
-        )
+        if (item0, lookahead) not in Item1._INSTANCE_HASH:
+            successor_item1 = None
+            if item0.successor_item is not None:
+                successor_item1 = Item1.create_by_item0(item0.successor_item, lookahead)
+            Item1._INSTANCE_HASH[(item0, lookahead)] = Item1(
+                item0=item0,
+                successor_item=successor_item1,
+                lookahead=lookahead
+            )
+        return Item1._INSTANCE_HASH[(item0, lookahead)]
 
     def get_centric(self) -> ItemCentric:
         """获取项目核心：适用于 LALR(1) 解析器的同心项目集计算"""
