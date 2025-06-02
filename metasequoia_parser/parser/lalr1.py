@@ -6,6 +6,7 @@ import collections
 from typing import Dict, List, Optional, Set, Tuple
 
 from metasequoia_parser.common import Grammar
+from metasequoia_parser.common import Item0
 from metasequoia_parser.common import Item1
 from metasequoia_parser.common import Item1Set
 from metasequoia_parser.common import ItemCentric
@@ -166,15 +167,14 @@ class ParserLALR1(ParserBase):
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         if self.debug is True:
             LOGGER.info("[1 / 10] 计算 Item0 对象开始")
-        item0_list = cal_all_item0_list(self.grammar)
+        item0_list: List[Item0] = cal_all_item0_list(self.grammar)
         if self.debug is True:
             LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(item0_list)})")
 
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         if self.debug is True:
             LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
-        symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(item0_list)
-        self.symbol_to_start_item_list_hash = symbol_to_start_item_list_hash
+        self.symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(item0_list)
         if self.debug is True:
             LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
                         f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
@@ -190,7 +190,7 @@ class ParserLALR1(ParserBase):
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         core_tuple_to_item1_set_hash = cal_core_to_item1_set_hash(self.grammar, item0_list, init_item0,
-                                                                  symbol_to_start_item_list_hash, debug=self.debug,
+                                                                  self.symbol_to_start_item_list_hash, debug=self.debug,
                                                                   profile_limit=self._profile_4)
         if self.debug is True:
             LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
@@ -208,7 +208,8 @@ class ParserLALR1(ParserBase):
             LOGGER.info("[6 / 10] 计算项目集核心开始")
         concentric_hash = cal_concentric_hash(core_tuple_to_item1_set_hash)
         if self.debug is True:
-            LOGGER.info("[6 / 10] 计算项目集核心结束")
+            LOGGER.info("[6 / 10] 计算项目集核心结束 "
+                        f"(项目集核心数量 = {len(concentric_hash)})")
 
         # 合并项目集核心相同的项目集（原地更新）
         if self.debug is True:
@@ -216,7 +217,8 @@ class ParserLALR1(ParserBase):
         merge_same_concentric_item1_set(concentric_hash, core_tuple_to_before_item1_set_hash,
                                         core_tuple_to_item1_set_hash)
         if self.debug is True:
-            LOGGER.info("[7 / 10] 合并项目集核心相同的项目集结束")
+            LOGGER.info("[7 / 10] 合并项目集核心相同的项目集结束 "
+                        f"(合并后关系映射数量 = {len(core_tuple_to_item1_set_hash)})")
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
         if self.debug is True:
