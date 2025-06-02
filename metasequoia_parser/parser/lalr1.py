@@ -20,6 +20,7 @@ from metasequoia_parser.functions import cal_symbol_to_start_item_list_hash
 from metasequoia_parser.functions import create_lr_parsing_table_use_lalr1
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
 from metasequoia_parser.utils import LOGGER
+from functools import lru_cache
 
 # 接受（ACCEPT）类型或规约（REDUCE）类型的集合
 ACCEPT_OR_REDUCE = {ItemType.ACCEPT, ItemType.REDUCE}
@@ -361,6 +362,8 @@ class ParserLALR1(ParserBase):
         # pylint: disable=R0914
         """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
 
+        等价 LR(1) 项目
+
         Parameters
         ----------
         core_tuple : Tuple[Item1]
@@ -391,46 +394,11 @@ class ParserLALR1(ParserBase):
         while queue:
             after_handle, lookahead = queue.popleft()
 
-            # 如果开头符号是终结符，则不存在等价项目
-            first_symbol = after_handle[0]
-            # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-            if first_symbol < n_terminal:
-                continue
-
-            sub_item_set = set()  # 当前项目组之后的所有可能的 lookahead
-
-            # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
-            for item0 in self.symbol_to_start_item_list_hash[first_symbol]:
-                # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
-                i = 1
-                is_stop = False  # 是否已经找到不能匹配 %empty 的非终结符或终结符
-                while i < len(after_handle):  # 向后逐个遍历符号，寻找展望符
-                    next_symbol = after_handle[i]
-
-                    # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
-                    # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-                    if next_symbol < n_terminal:
-                        sub_item_set.add(Item1.create_by_item0(item0, next_symbol))
-                        is_stop = True
-                        break
-
-                    # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
-                    for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                        sub_item_set.add(Item1.create_by_item0(item0, start_terminal))
-
-                    # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
-                    if not self.grammar.is_maybe_empty(next_symbol):
-                        is_stop = True
-                        break
-
-                    i += 1
-
-                # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
-                if is_stop is False:
-                    sub_item_set.add(Item1.create_by_item0(item0, lookahead))
-
-            # if len(after_handle) == 1 and after_handle[0] == 7:
-            #     print(f"after_handle: {after_handle}, lookahead: {lookahead}")
+            # 计算单层的等价 LR(1) 项目
+            sub_item_set = self.compute_single_level_lr1_closure(
+                after_handle=after_handle,
+                lookahead=lookahead
+            )
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
             item_set |= sub_item_set
@@ -447,3 +415,61 @@ class ParserLALR1(ParserBase):
                     queue.append((after_handle, lookahead))
 
         return list(item_set)
+
+    @lru_cache(maxsize=None)
+    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int):
+        """计算单层的等价 LR(1) 项目
+
+        Parameters
+        ----------
+        after_handle : Tuple[int, ...]
+            LR(1) 项目在句柄之后的符号的元组
+        lookahead : int
+            LR(1) 项目的展望符（作为继承的后继符）
+
+        Returns
+        -------
+        Set[Item1]
+            等价 LR(1) 项目的集合
+        """
+        n_terminal = self.grammar.n_terminal  # 【性能】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
+
+        # 如果开头符号是终结符，则不存在等价项目
+        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+        first_symbol = after_handle[0]
+        if first_symbol < n_terminal:
+            return set()
+
+        sub_item_set = set()  # 当前项目组之后的所有可能的 lookahead
+
+        # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
+        for item0 in self.symbol_to_start_item_list_hash[first_symbol]:
+            # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
+            i = 1
+            is_stop = False  # 是否已经找到不能匹配 %empty 的非终结符或终结符
+            while i < len(after_handle):  # 向后逐个遍历符号，寻找展望符
+                next_symbol = after_handle[i]
+
+                # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
+                # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+                if next_symbol < n_terminal:
+                    sub_item_set.add(Item1.create_by_item0(item0, next_symbol))
+                    is_stop = True
+                    break
+
+                # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
+                for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
+                    sub_item_set.add(Item1.create_by_item0(item0, start_terminal))
+
+                # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
+                if not self.grammar.is_maybe_empty(next_symbol):
+                    is_stop = True
+                    break
+
+                i += 1
+
+            # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
+            if is_stop is False:
+                sub_item_set.add(Item1.create_by_item0(item0, lookahead))
+
+        return sub_item_set
