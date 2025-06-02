@@ -65,7 +65,7 @@ def closure_item1(grammar: Grammar,
 
         # 如果开头符号是终结符，则不存在等价项目
         first_symbol = after_handle[0]
-        # ps. 通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
         if first_symbol < n_terminal:
             continue
 
@@ -80,7 +80,7 @@ def closure_item1(grammar: Grammar,
                 next_symbol = after_handle[i]
 
                 # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
-                # ps. 通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+                # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
                 if next_symbol < n_terminal:
                     sub_item_set.add(Item1.create_by_item0(item0, next_symbol))
                     is_stop = True
