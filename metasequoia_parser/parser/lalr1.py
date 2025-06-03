@@ -78,21 +78,56 @@ class ParserLALR1(ParserBase):
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                     f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
 
-        # 计算核心项目元组到该项目集的前置项目集的映射表
-        # LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表开始")
-        # self.core_tuple_to_before_item1_set_hash = self.cal_core_tuple_to_before_item1_set_hash()
-        # LOGGER.info("[5 / 10] 计算核心项目元组到该项目集的前置项目集的映射表结束")
-
         # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
-        LOGGER.info("[6 / 10] 计算项目集核心开始")
+        LOGGER.info("[5 / 10] 计算项目集核心开始")
         self.concentric_hash = self.cal_concentric_hash()
-        LOGGER.info(f"[6 / 10] 计算项目集核心结束 (项目集核心数量 = {len(self.concentric_hash)})")
+        LOGGER.info(f"[5 / 10] 计算项目集核心结束 (项目集核心数量 = {len(self.concentric_hash)})")
 
         # 合并项目集核心相同的项目集（原地更新）
-        LOGGER.info("[7 / 10] 合并项目集核心相同的项目集开始")
+        LOGGER.info("[6 / 10] 合并项目集核心相同的项目集开始")
+        self.core_tuple_hash = {}
         self.merge_same_concentric_item1_set()
-        LOGGER.info("[7 / 10] 合并项目集核心相同的项目集结束 "
+        LOGGER.info("[6 / 10] 合并项目集核心相同的项目集结束 "
                     f"(合并后关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
+
+        # 构造 LR(1) 项目集之间的前驱 / 后继关系
+        LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
+        self.create_item1_set_relation()
+        LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系结束")
+
+        # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
+        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
+        self.core_tuple_to_status_hash = {core_tuple: i
+                                          for i, core_tuple in
+                                          enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
+        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
+
+        # 生成初始状态
+        LOGGER.info("[9 / 10] 生成初始状态开始")
+        self.init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
+        self.entrance_status = self.core_tuple_to_status_hash[(self.init_item1,)]
+        LOGGER.info("[9 / 10] 生成初始状态结束")
+
+        # 构造 ACTION 表 + GOTO 表
+        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
+        accept_item0 = cal_accept_item_from_item_list(self.item0_list)
+        accept_item1 = Item1.create_by_item0(accept_item0, self.grammar.end_terminal)
+        accept_item1_set = None
+        for core_tuple, item1_set in self.core_tuple_to_item1_set_hash.items():
+            if accept_item1 in core_tuple:
+                accept_item1_set = item1_set
+
+        self.table = create_lr_parsing_table_use_lalr1(
+            grammar=self.grammar,
+            core_tuple_to_status_hash=self.core_tuple_to_status_hash,
+            core_tuple_to_item1_set_hash=self.core_tuple_to_item1_set_hash,
+            accept_item1_set=accept_item1_set
+        )
+        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
+
+        if self.profile:
+            self.profiler.disable()
+            self.profiler.print_stats(sort="cumtime")
 
         super().__init__(grammar, debug=debug)
 
@@ -110,41 +145,7 @@ class ParserLALR1(ParserBase):
 
         pylint: disable=R0801 -- 未提高相似算法的代码可读性，允许不同算法之间存在少量相同代码
         """
-        # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
-        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
-        core_tuple_to_status_hash = {core_tuple: i
-                                     for i, core_tuple in
-                                     enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
-        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
-
-        # 生成初始状态
-        LOGGER.info("[9 / 10] 生成初始状态开始")
-        init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
-        entrance_status = core_tuple_to_status_hash[(init_item1,)]
-        LOGGER.info("[9 / 10] 生成初始状态结束")
-
-        # 构造 ACTION 表 + GOTO 表
-        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
-        accept_item0 = cal_accept_item_from_item_list(self.item0_list)
-        accept_item1 = Item1.create_by_item0(accept_item0, self.grammar.end_terminal)
-        accept_item1_set = None
-        for core_tuple, item1_set in self.core_tuple_to_item1_set_hash.items():
-            if accept_item1 in core_tuple:
-                accept_item1_set = item1_set
-
-        table = create_lr_parsing_table_use_lalr1(
-            grammar=self.grammar,
-            core_tuple_to_status_hash=core_tuple_to_status_hash,
-            core_tuple_to_item1_set_hash=self.core_tuple_to_item1_set_hash,
-            accept_item1_set=accept_item1_set
-        )
-        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
-
-        if self.profile:
-            self.profiler.disable()
-            self.profiler.print_stats(sort="cumtime")
-
-        return table, entrance_status
+        return self.table, self.entrance_status
 
     def cal_core_to_item1_set_hash(self) -> Dict[Tuple[Item1, ...], Item1Set]:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
@@ -364,7 +365,6 @@ class ParserLALR1(ParserBase):
     def merge_same_concentric_item1_set(self) -> None:
         # pylint: disable=R0914
         """合并 LR(1) 项目集核心相同的 LR(1) 项目集（原地更新）"""
-        core_tuple_hash = {}
         for _, item1_set_list in self.concentric_hash.items():
             if len(item1_set_list) == 1:
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
@@ -389,17 +389,18 @@ class ParserLALR1(ParserBase):
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
             for item1_set in item1_set_list:
-                core_tuple_hash[item1_set.core_tuple] = new_core_tuple
+                self.core_tuple_hash[item1_set.core_tuple] = new_core_tuple
 
             # 从核心项目到项目集闭包的映射中移除旧项目集，添加新项目集
             for item1_set in item1_set_list:
                 self.core_tuple_to_item1_set_hash.pop(item1_set.core_tuple)
             self.core_tuple_to_item1_set_hash[new_item1_set.core_tuple] = new_item1_set
 
-        # 【性能设计】后置构造 LR(1) 项目集的关系
+    def create_item1_set_relation(self) -> None:
+        """构造 LR(1) 项目集之间的前驱 / 后继关系"""
         for core_tuple, successor_symbol, successor_core_tuple in self.core_tuple_relation:
-            new_core_tuple = core_tuple_hash.get(core_tuple, core_tuple)
-            new_successor_core_tuple = core_tuple_hash.get(successor_core_tuple, successor_core_tuple)
+            new_core_tuple = self.core_tuple_hash.get(core_tuple, core_tuple)
+            new_successor_core_tuple = self.core_tuple_hash.get(successor_core_tuple, successor_core_tuple)
             from_item1_set = self.core_tuple_to_item1_set_hash[new_core_tuple]
             to_item1_set = self.core_tuple_to_item1_set_hash[new_successor_core_tuple]
             from_item1_set.set_successor(successor_symbol, to_item1_set)
