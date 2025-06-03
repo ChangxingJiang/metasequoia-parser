@@ -74,7 +74,11 @@ class ParserLALR1(ParserBase):
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.core_tuple_relation = []  # 核心项目之间的关联关系
-        self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = self.cal_core_to_item1_set_hash()
+        self.core_tuple_to_sid_hash = {}  # 核心项目到 SID1 的映射
+        self.sid_to_core_tuple_hash = []  # SID1 到核心项目的映射
+        self.sid_to_item1_set_hash = []  # SID1 到 LR(1) 项目集的映射
+        self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = {}  # 核心项目到 LR(1) 项目集的映射
+        self.cal_core_to_item1_set_hash()
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                     f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
 
@@ -147,23 +151,23 @@ class ParserLALR1(ParserBase):
         """
         return self.table, self.entrance_status
 
-    def cal_core_to_item1_set_hash(self) -> Dict[Tuple[Item1, ...], Item1Set]:
+    def cal_core_to_item1_set_hash(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
         init_core_tuple = (init_item1,)
+        self.core_tuple_to_sid_hash[init_core_tuple] = 0
+        self.sid_to_core_tuple_hash.append(init_core_tuple)
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
-        visited = {init_core_tuple}
-        queue = collections.deque([init_core_tuple])
-
-        # 初始化结果集（项目集核心项目元组到项目集闭包的映射）
-        core_tuple_to_item1_set_hash = {}
+        visited = {0}
+        queue = collections.deque([0])
 
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue:
-            core_tuple = queue.popleft()
+            sid1 = queue.popleft()
+            core_tuple = self.sid_to_core_tuple_hash[sid1]
 
             if self.debug is True:
                 LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
@@ -175,10 +179,12 @@ class ParserLALR1(ParserBase):
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
+                sid=sid1,
                 core_list=core_tuple,
                 other_item1_set=other_item1_set
             )
-            core_tuple_to_item1_set_hash[core_tuple] = item1_set
+            self.core_tuple_to_item1_set_hash[core_tuple] = item1_set
+            self.sid_to_item1_set_hash.append(item1_set)
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(set)
@@ -190,19 +196,23 @@ class ParserLALR1(ParserBase):
             successor_core_tuple_hash = {}
             for successor_symbol, sub_item1_set in successor_group.items():
                 successor_core_tuple: Tuple[Item1, ...] = tuple(sorted(sub_item1_set, key=repr))
-                successor_core_tuple_hash[successor_symbol] = successor_core_tuple
+                if successor_core_tuple not in self.core_tuple_to_sid_hash:
+                    successor_sid1 = len(self.core_tuple_to_sid_hash)
+                    self.core_tuple_to_sid_hash[successor_core_tuple] = successor_sid1
+                    self.sid_to_core_tuple_hash.append(successor_core_tuple)
+                else:
+                    successor_sid1 = self.core_tuple_to_sid_hash[successor_core_tuple]
+                successor_core_tuple_hash[successor_symbol] = successor_sid1
 
             # 记录项目集闭包之间的关联关系
-            for successor_symbol, successor_core_tuple in successor_core_tuple_hash.items():
-                self.core_tuple_relation.append((core_tuple, successor_symbol, successor_core_tuple))
+            for successor_symbol, successor_sid1 in successor_core_tuple_hash.items():
+                self.core_tuple_relation.append((sid1, successor_symbol, successor_sid1))
 
             # 将后继项目集闭包的核心项目元组添加到队列
-            for successor_core_tuple in successor_core_tuple_hash.values():
-                if successor_core_tuple not in visited:
-                    queue.append(successor_core_tuple)
-                    visited.add(successor_core_tuple)
-
-        return core_tuple_to_item1_set_hash
+            for successor_sid1 in successor_core_tuple_hash.values():
+                if successor_sid1 not in visited:
+                    queue.append(successor_sid1)
+                    visited.add(successor_sid1)
 
     def closure_item1(self,
                       core_tuple: Tuple[Item1]
@@ -368,14 +378,24 @@ class ParserLALR1(ParserBase):
             new_core_item_list = list(new_core_item_set)
             new_core_item_list.sort()
             new_core_tuple = tuple(new_core_item_list)
+
+            if new_core_tuple not in self.core_tuple_to_sid_hash:
+                new_sid1 = len(self.core_tuple_to_sid_hash)
+                self.core_tuple_to_sid_hash[new_core_tuple] = new_sid1
+                self.sid_to_core_tuple_hash.append(new_core_tuple)
+            else:
+                new_sid1 = self.core_tuple_to_sid_hash[new_core_tuple]
+
             new_item1_set = Item1Set.create(
+                sid=new_sid1,
                 core_list=new_core_tuple,
                 other_item1_set=new_other_item_set
             )
+            self.sid_to_item1_set_hash.append(new_item1_set)
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
             for item1_set in item1_set_list:
-                self.core_tuple_hash[item1_set.core_tuple] = new_core_tuple
+                self.core_tuple_hash[item1_set.sid] = new_sid1
 
             # 从核心项目到项目集闭包的映射中移除旧项目集，添加新项目集
             for item1_set in item1_set_list:
@@ -384,9 +404,9 @@ class ParserLALR1(ParserBase):
 
     def create_item1_set_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
-        for core_tuple, successor_symbol, successor_core_tuple in self.core_tuple_relation:
-            new_core_tuple = self.core_tuple_hash.get(core_tuple, core_tuple)
-            new_successor_core_tuple = self.core_tuple_hash.get(successor_core_tuple, successor_core_tuple)
-            from_item1_set = self.core_tuple_to_item1_set_hash[new_core_tuple]
-            to_item1_set = self.core_tuple_to_item1_set_hash[new_successor_core_tuple]
+        for sid1, successor_symbol, successor_sid1 in self.core_tuple_relation:
+            new_sid1 = self.core_tuple_hash.get(sid1, sid1)
+            new_successor_sid1 = self.core_tuple_hash.get(successor_sid1, successor_sid1)
+            from_item1_set = self.sid_to_item1_set_hash[new_sid1]
+            to_item1_set = self.sid_to_item1_set_hash[new_successor_sid1]
             from_item1_set.set_successor(successor_symbol, to_item1_set)

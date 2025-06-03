@@ -56,14 +56,16 @@ class Item0Set:
 class Item1Set:
     """提前查看下一个字符的项目集闭包类：适用于 LR(1) 解析器和 LALR(1) 解析器"""
 
+    sid: int = dataclasses.field(kw_only=True)
     core_tuple: Tuple[Item1, ...] = dataclasses.field(kw_only=True)  # 核心项目
     other_item1_set: Set[Item1] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
     successor_hash: Dict[int, "Item1Set"] = dataclasses.field(kw_only=True, default_factory=lambda: {})  # 后继项目的关联关系
 
     @staticmethod
-    def create(core_list: Tuple[Item1], other_item1_set: Set[Item1]) -> "Item1Set":
+    def create(sid: int, core_list: Tuple[Item1], other_item1_set: Set[Item1]) -> "Item1Set":
         """项目集闭包对象的构造方法"""
         return Item1Set(
+            sid=sid,
             core_tuple=core_list,
             other_item1_set=other_item1_set
         )
