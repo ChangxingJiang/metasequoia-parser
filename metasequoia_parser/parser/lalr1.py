@@ -174,7 +174,10 @@ class ParserLALR1(ParserBase):
             item1_list = self.closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
-            item1_set = Item1Set.create(core_list=core_tuple, item_list=item1_list)
+            item1_set = Item1Set.create(
+                core_list=core_tuple,
+                other_item_set=item1_list
+            )
             core_tuple_to_item1_set_hash[core_tuple] = item1_set
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
@@ -203,7 +206,7 @@ class ParserLALR1(ParserBase):
 
     def closure_item1(self,
                       core_tuple: Tuple[Item1]
-                      ) -> List[Item1]:
+                      ) -> Set[Item1]:
         # pylint: disable=R0912
         # pylint: disable=R0914
         """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
@@ -265,7 +268,7 @@ class ParserLALR1(ParserBase):
                     visited_symbol_set.add((after_handle, lookahead))
                     queue.append((after_handle, lookahead))
 
-        return list(item_set)
+        return item_set
 
     @lru_cache(maxsize=None)
     def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[Item1]:
@@ -359,7 +362,7 @@ class ParserLALR1(ParserBase):
             new_other_item_set: Set[Item1] = set()  # 新项目集的其他等价项目
             for item1_set in item1_set_list:
                 new_core_item_set |= set(item1_set.core_tuple)
-                new_other_item_set |= set(item1_set.item_list)
+                new_other_item_set |= item1_set.other_item_set
 
             # 通过排序逻辑以保证结果状态是稳定的
             new_core_item_list = list(new_core_item_set)
@@ -367,7 +370,7 @@ class ParserLALR1(ParserBase):
             new_core_tuple = tuple(new_core_item_list)
             new_item1_set = Item1Set.create(
                 core_list=new_core_tuple,
-                item_list=list(new_other_item_set)
+                other_item_set=new_other_item_set
             )
 
             # 记录旧 core_tuple 到新 core_tuple 的映射

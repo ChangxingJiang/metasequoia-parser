@@ -22,7 +22,7 @@ def closure_item1(grammar: Grammar,
                   core_tuple: Tuple[Item1],
                   symbol_start_item0_list_hash: Dict[int, List[Item0]],
                   nonterminal_all_start_terminal: Dict[int, Set[int]]
-                  ) -> List[Item1]:
+                  ) -> Set[Item1]:
     # pylint: disable=R0912
     # pylint: disable=R0914
     """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
@@ -118,4 +118,4 @@ def closure_item1(grammar: Grammar,
                 visited_symbol_set.add((after_handle, lookahead))
                 queue.append((after_handle, lookahead))
 
-    return list(item_set)
+    return item_set

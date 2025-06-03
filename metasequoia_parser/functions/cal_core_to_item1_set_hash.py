@@ -98,7 +98,7 @@ def cal_core_to_item1_set_hash(grammar: Grammar,
                                    nonterminal_all_start_terminal)
 
         # 构造项目集闭包并添加到结果集中
-        item1_set = Item1Set.create(core_list=core_tuple, item_list=item1_list)
+        item1_set = Item1Set.create(core_list=core_tuple, other_item_set=item1_list)
         core_tuple_to_item1_set_hash[core_tuple] = item1_set
 
         # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
