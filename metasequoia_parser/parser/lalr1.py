@@ -372,13 +372,7 @@ class ParserLALR1(ParserBase):
 
     def merge_same_concentric_item1_set(self) -> None:
         # pylint: disable=R0914
-        """合并同心项目集（原地更新）
-
-        Parameters
-        ----------
-        core_tuple_to_item1_set_hash : Dict[Tuple[Item1, ...], Item1Set]
-            项目集核心项目元组到项目集闭包的映射
-        """
+        """合并同心项目集（原地更新）"""
         for _, item1_set_list in self.concentric_hash.items():
             if len(item1_set_list) == 1:
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
