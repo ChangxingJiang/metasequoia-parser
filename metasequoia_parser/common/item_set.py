@@ -3,7 +3,7 @@
 """
 
 import dataclasses
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Set
 
 from metasequoia_parser.common.item import Item0, Item1
 

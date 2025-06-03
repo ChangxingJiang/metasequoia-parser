@@ -328,21 +328,6 @@ class ParserLALR1(ParserBase):
 
         return sub_item_set
 
-    def cal_core_tuple_to_before_item1_set_hash(self) -> Dict[Tuple[Item1, ...], List[Tuple[int, Item1Set]]]:
-        """计算核心项目元组到该项目集的前置项目集的映射表
-
-        Returns
-        -------
-        Dict[Tuple[Item1, ...], List[Tuple[int, Item1Set]]]
-            核心项目元组到该项目集的前置项目集的映射表
-        """
-        core_tuple_to_before_item1_set_hash = collections.defaultdict(list)
-        for _, item1_set in self.core_tuple_to_item1_set_hash.items():
-            for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
-                core_tuple_to_before_item1_set_hash[successor_item1_set.core_tuple].append(
-                    (successor_symbol, item1_set))
-        return core_tuple_to_before_item1_set_hash
-
     def cal_concentric_hash(self) -> Dict[Tuple[ItemCentric, ...], List[Item1Set]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
 
@@ -379,12 +364,10 @@ class ParserLALR1(ParserBase):
             # 通过排序逻辑以保证结果状态是稳定的
             new_core_item_list = list(new_core_item_set)
             new_core_item_list.sort()
-            new_other_item_list = list(new_other_item_set)
-            new_other_item_list.sort()
             new_core_tuple = tuple(new_core_item_list)
             new_item1_set = Item1Set.create(
                 core_list=new_core_tuple,
-                item_list=new_other_item_list
+                item_list=list(new_other_item_set)
             )
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
