@@ -73,6 +73,7 @@ class ParserLALR1(ParserBase):
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
+        self.core_tuple_relation = []  # 核心项目之间的关联关系
         self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = self.cal_core_to_item1_set_hash()
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                     f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
@@ -192,7 +193,7 @@ class ParserLALR1(ParserBase):
 
             # 记录项目集闭包之间的关联关系
             for successor_symbol, successor_core_tuple in successor_core_tuple_hash.items():
-                item1_set_relation.append((core_tuple, successor_symbol, successor_core_tuple))
+                self.core_tuple_relation.append((core_tuple, successor_symbol, successor_core_tuple))
 
             # 将后继项目集闭包的核心项目元组添加到队列
             for successor_core_tuple in successor_core_tuple_hash.values():
@@ -201,11 +202,10 @@ class ParserLALR1(ParserBase):
                     visited.add(successor_core_tuple)
 
         # 构造项目集之间的关系
-        for from_core_tuple, successor_symbol, to_core_tuple in item1_set_relation:
-            from_item1_set = core_tuple_to_item1_set_hash[from_core_tuple]
-            to_item1_set = core_tuple_to_item1_set_hash[to_core_tuple]
-            from_item1_set.set_successor(successor_symbol, to_item1_set)
-            # print(from_item1_set.core_tuple, "->", to_item1_set.core_tuple)
+        # for from_core_tuple, successor_symbol, to_core_tuple in item1_set_relation:
+        #     from_item1_set = core_tuple_to_item1_set_hash[from_core_tuple]
+        #     to_item1_set = core_tuple_to_item1_set_hash[to_core_tuple]
+        #     from_item1_set.set_successor(successor_symbol, to_item1_set)
 
         return core_tuple_to_item1_set_hash
 
@@ -372,7 +372,8 @@ class ParserLALR1(ParserBase):
 
     def merge_same_concentric_item1_set(self) -> None:
         # pylint: disable=R0914
-        """合并同心项目集（原地更新）"""
+        """合并 LR(1) 项目集核心相同的 LR(1) 项目集（原地更新）"""
+        core_tuple_hash = {}
         for _, item1_set_list in self.concentric_hash.items():
             if len(item1_set_list) == 1:
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
@@ -381,43 +382,54 @@ class ParserLALR1(ParserBase):
             new_core_item_set: Set[Item1] = set()  # 新项目集的核心项目
             new_other_item_set: Set[Item1] = set()  # 新项目集的其他等价项目
             for item1_set in item1_set_list:
-                for core_item in item1_set.core_tuple:
-                    new_core_item_set.add(core_item)
-                for other_item in item1_set.item_list:
-                    new_other_item_set.add(other_item)
+                new_core_item_set |= set(item1_set.core_tuple)
+                new_other_item_set |= set(item1_set.item_list)
 
             # 通过排序逻辑以保证结果状态是稳定的
             new_core_item_list = list(new_core_item_set)
             new_core_item_list.sort()
             new_other_item_list = list(new_other_item_set)
             new_other_item_list.sort()
+            new_core_tuple = tuple(new_core_item_list)
             new_item1_set = Item1Set.create(
-                core_list=tuple(new_core_item_list),
+                core_list=new_core_tuple,
                 item_list=new_other_item_list
             )
 
-            # 为新的项目集添加后继项目集；同时更新核心项目元组到该项目集的前置项目集的映射表
+            # 记录旧 core_tuple 到新 core_tuple 的映射
             for item1_set in item1_set_list:
-                for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
-                    new_item1_set.set_successor(successor_symbol, successor_item1_set)
-                    self.core_tuple_to_before_item1_set_hash[successor_item1_set.core_tuple].remove(
-                        (successor_symbol, item1_set))
-                    self.core_tuple_to_before_item1_set_hash[successor_item1_set.core_tuple].append(
-                        (successor_symbol, new_item1_set))
+                core_tuple_hash[item1_set.core_tuple] = new_core_tuple
+
+            # 为新的项目集添加后继项目集；同时更新核心项目元组到该项目集的前置项目集的映射表
+            # for item1_set in item1_set_list:
+            #     for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
+            #         new_item1_set.set_successor(successor_symbol, successor_item1_set)
+            #         self.core_tuple_to_before_item1_set_hash[successor_item1_set.core_tuple].remove(
+            #             (successor_symbol, item1_set))
+            #         self.core_tuple_to_before_item1_set_hash[successor_item1_set.core_tuple].append(
+            #             (successor_symbol, new_item1_set))
 
             # 调整原项目集的前置项目的后继项目集，指向新的项目集；同时更新核心项目元组到该项目集的前置项目集的映射表
-            new_before_item_set_list = []  # 新项目集的前置项目集列表
-            for item1_set in item1_set_list:
-                for successor_symbol, before_item1_set in self.core_tuple_to_before_item1_set_hash[
-                    item1_set.core_tuple]:
-                    # 此时 before_item1_set 可能已被更新，所以 before_item1_set 的后继项目未必是 item1_set，即不存在：
-                    # assert before_item1_set.get_successor(successor_symbol).core_tuple == item1_set.core_tuple
-                    before_item1_set.set_successor(successor_symbol, new_item1_set)
-                    new_before_item_set_list.append((successor_symbol, before_item1_set))
-                self.core_tuple_to_before_item1_set_hash.pop(item1_set.core_tuple)
-            self.core_tuple_to_before_item1_set_hash[new_item1_set.core_tuple] = new_before_item_set_list
+            # new_before_item_set_list = []  # 新项目集的前置项目集列表
+            # for item1_set in item1_set_list:
+            #     for successor_symbol, before_item1_set in self.core_tuple_to_before_item1_set_hash[
+            #         item1_set.core_tuple]:
+            #         # 此时 before_item1_set 可能已被更新，所以 before_item1_set 的后继项目未必是 item1_set，即不存在：
+            #         # assert before_item1_set.get_successor(successor_symbol).core_tuple == item1_set.core_tuple
+            #         before_item1_set.set_successor(successor_symbol, new_item1_set)
+            #         new_before_item_set_list.append((successor_symbol, before_item1_set))
+            #     self.core_tuple_to_before_item1_set_hash.pop(item1_set.core_tuple)
+            # self.core_tuple_to_before_item1_set_hash[new_item1_set.core_tuple] = new_before_item_set_list
 
             # 从核心项目到项目集闭包的映射中移除旧项目集，添加新项目集
             for item1_set in item1_set_list:
                 self.core_tuple_to_item1_set_hash.pop(item1_set.core_tuple)
             self.core_tuple_to_item1_set_hash[new_item1_set.core_tuple] = new_item1_set
+
+        # 【性能设计】后置构造 LR(1) 项目集的关系
+        for core_tuple, successor_symbol, successor_core_tuple in self.core_tuple_relation:
+            new_core_tuple = core_tuple_hash.get(core_tuple, core_tuple)
+            new_successor_core_tuple = core_tuple_hash.get(successor_core_tuple, successor_core_tuple)
+            from_item1_set = self.core_tuple_to_item1_set_hash[new_core_tuple]
+            to_item1_set = self.core_tuple_to_item1_set_hash[new_successor_core_tuple]
+            from_item1_set.set_successor(successor_symbol, to_item1_set)
