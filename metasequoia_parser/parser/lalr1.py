@@ -171,12 +171,12 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             # 根据项目集核心项目元组生成项目集闭包中包含的其他项目列表
-            item1_list = self.closure_item1(core_tuple)
+            other_item1_set = self.closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
                 core_list=core_tuple,
-                other_item_set=item1_list
+                other_item1_set=other_item1_set
             )
             core_tuple_to_item1_set_hash[core_tuple] = item1_set
 
@@ -362,7 +362,7 @@ class ParserLALR1(ParserBase):
             new_other_item_set: Set[Item1] = set()  # 新项目集的其他等价项目
             for item1_set in item1_set_list:
                 new_core_item_set |= set(item1_set.core_tuple)
-                new_other_item_set |= item1_set.other_item_set
+                new_other_item_set |= item1_set.other_item1_set
 
             # 通过排序逻辑以保证结果状态是稳定的
             new_core_item_list = list(new_core_item_set)
@@ -370,7 +370,7 @@ class ParserLALR1(ParserBase):
             new_core_tuple = tuple(new_core_item_list)
             new_item1_set = Item1Set.create(
                 core_list=new_core_tuple,
-                other_item_set=new_other_item_set
+                other_item1_set=new_other_item_set
             )
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
