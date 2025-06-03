@@ -62,6 +62,31 @@ class ItemBase(abc.ABC):
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
+class ItemCentric:
+    """项目核心：适用于 LALR(1) 解析器的同心项目集计算
+
+    Parameters
+    ----------
+    reduce_name : str
+        规约的非终结符名称（即所在语义组名称）
+    before_handle : Tuple[str, ...]
+        在句柄之前的符号名称的列表
+    after_handle : Tuple[str, ...]
+        在句柄之后的符号名称的列表
+    """
+
+    reduce_name: int = dataclasses.field(kw_only=True)  # 规约的非终结符名称（即所在语义组名称）
+    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之前的符号名称的列表
+    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之后的符号名称的列表
+
+    def __repr__(self) -> str:
+        """将 ItemBase 转换为字符串表示"""
+        before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
+        after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
+        return f"{self.reduce_name}->{before_symbol_str}·{after_symbol_str}"
+
+
+@dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
 class Item0(ItemBase):
     """不提前查看下一个字符的项目类：适用于 LR(0) 解析器和 SLR 解析器
 
@@ -99,6 +124,9 @@ class Item0(ItemBase):
     # 【性能设计】__repr__() 函数的返回值：
     # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
     repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
+
+    # 【性能设计】项目集核心
+    centric: ItemCentric = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     @staticmethod
     def create(reduce_name: int,
@@ -144,10 +172,21 @@ class Item0(ItemBase):
         Item0
             构造的 Item0 文法项目对象
         """
+        # 【性能设计】提前计算 __repr__() 函数的返回值
         before_symbol_str = " ".join(str(symbol) for symbol in before_handle)
         after_symbol_str = " ".join(str(symbol) for symbol in after_handle)
         repr_value = f"{reduce_name}->{before_symbol_str}·{after_symbol_str}"
+
+        # 【性能设计】Item0 项目集唯一 ID 计数器累加
         Item0._INSTANCE_CNT += 1
+
+        # 【性能设计】提前计算项目集核心对象的返回值
+        centric = ItemCentric(
+            reduce_name=reduce_name,
+            before_handle=tuple(before_handle),
+            after_handle=tuple(after_handle),
+        )
+
         return Item0(
             id=Item0._INSTANCE_CNT,
             nonterminal_id=reduce_name,
@@ -160,7 +199,8 @@ class Item0(ItemBase):
             sr_priority_idx=sr_priority_idx,
             sr_combine_type=sr_combine_type,
             rr_priority_idx=rr_priority_idx,
-            repr_value=repr_value
+            repr_value=repr_value,
+            centric=centric
         )
 
     def __repr__(self) -> str:
@@ -186,31 +226,6 @@ class Item0(ItemBase):
     def is_accept(self) -> bool:
         """是否为接收项目"""
         return self.item_type == ItemType.ACCEPT
-
-
-@dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class ItemCentric:
-    """项目核心：适用于 LALR(1) 解析器的同心项目集计算
-
-    Parameters
-    ----------
-    reduce_name : str
-        规约的非终结符名称（即所在语义组名称）
-    before_handle : Tuple[str, ...]
-        在句柄之前的符号名称的列表
-    after_handle : Tuple[str, ...]
-        在句柄之后的符号名称的列表
-    """
-
-    reduce_name: int = dataclasses.field(kw_only=True)  # 规约的非终结符名称（即所在语义组名称）
-    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之前的符号名称的列表
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之后的符号名称的列表
-
-    def __repr__(self) -> str:
-        """将 ItemBase 转换为字符串表示"""
-        before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
-        after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
-        return f"{self.reduce_name}->{before_symbol_str}·{after_symbol_str}"
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
@@ -276,11 +291,7 @@ class Item1(ItemBase):
 
     def get_centric(self) -> ItemCentric:
         """获取项目核心：适用于 LALR(1) 解析器的同心项目集计算"""
-        return ItemCentric(
-            reduce_name=self.item0.nonterminal_id,
-            before_handle=self.item0.before_handle,
-            after_handle=self.item0.after_handle,
-        )
+        return self.item0.centric
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""

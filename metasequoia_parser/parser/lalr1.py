@@ -352,7 +352,7 @@ class ParserLALR1(ParserBase):
         return core_tuple_to_before_item1_set_hash
 
     def cal_concentric_hash(self) -> Dict[Tuple[ItemCentric, ...], List[Item1Set]]:
-        """计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
+        """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
 
         Returns
         -------
@@ -408,7 +408,8 @@ class ParserLALR1(ParserBase):
             # 调整原项目集的前置项目的后继项目集，指向新的项目集；同时更新核心项目元组到该项目集的前置项目集的映射表
             new_before_item_set_list = []  # 新项目集的前置项目集列表
             for item1_set in item1_set_list:
-                for successor_symbol, before_item1_set in self.core_tuple_to_before_item1_set_hash[item1_set.core_tuple]:
+                for successor_symbol, before_item1_set in self.core_tuple_to_before_item1_set_hash[
+                    item1_set.core_tuple]:
                     # 此时 before_item1_set 可能已被更新，所以 before_item1_set 的后继项目未必是 item1_set，即不存在：
                     # assert before_item1_set.get_successor(successor_symbol).core_tuple == item1_set.core_tuple
                     before_item1_set.set_successor(successor_symbol, new_item1_set)
