@@ -187,15 +187,16 @@ class ParserLALR1(ParserBase):
             self.sid_to_item1_set_hash.append(item1_set)
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
-            successor_group = collections.defaultdict(set)
+            successor_group = collections.defaultdict(list)
             for item1 in item1_set.all_item_list:
-                if item1.item0.successor_symbol is not None:
-                    successor_group[item1.item0.successor_symbol].add(item1.successor_item)
+                successor_symbol = item1.item0.successor_symbol
+                if successor_symbol is not None:
+                    successor_group[successor_symbol].append(item1.successor_item)
 
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
             for successor_symbol, sub_item1_set in successor_group.items():
-                successor_core_tuple: Tuple[Item1, ...] = tuple(sorted(sub_item1_set, key=repr))
+                successor_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=repr))
                 if successor_core_tuple not in self.core_tuple_to_sid_hash:
                     successor_sid1 = len(self.core_tuple_to_sid_hash)
                     self.core_tuple_to_sid_hash[successor_core_tuple] = successor_sid1
