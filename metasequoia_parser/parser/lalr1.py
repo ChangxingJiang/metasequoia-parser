@@ -310,11 +310,11 @@ class Item1Set:
 
     sid: int = dataclasses.field(kw_only=True)
     core_tuple: Tuple[Item1, ...] = dataclasses.field(kw_only=True)  # 核心项目
-    other_item1_set: Set[Item1] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
+    other_item1_set: Set[int] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
     successor_hash: Dict[int, "Item1Set"] = dataclasses.field(kw_only=True, default_factory=lambda: {})  # 后继项目的关联关系
 
     @staticmethod
-    def create(sid: int, core_list: Tuple[Item1], other_item1_set: Set[Item1]) -> "Item1Set":
+    def create(sid: int, core_list: Tuple[Item1], other_item1_set: Set[int]) -> "Item1Set":
         """项目集闭包对象的构造方法"""
         return Item1Set(
             sid=sid,
@@ -445,7 +445,7 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 生成初始状态开始")
-        self.init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
+        self.init_item1 = self.i1_id_to_item1_hash[self._create_item1(self.init_item0, self.grammar.end_terminal)]
         self.entrance_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_item1,)]]
         LOGGER.info("[9 / 10] 生成初始状态结束")
 
@@ -596,14 +596,14 @@ class ParserLALR1(ParserBase):
                 return item0
         raise KeyError("未从项目列表中获取到 INIT 项目")
 
-    def _create_item1(self, item0: Item0, lookahead: int):
+    def _create_item1(self, item0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
         # 如果 item1 已经存在则返回已存在 item1
         if (item0.id, lookahead) in self.item1_core_to_i1_id_hash:
-            return self.i1_id_to_item1_hash[self.item1_core_to_i1_id_hash[(item0.id, lookahead)]]
+            return self.item1_core_to_i1_id_hash[(item0.id, lookahead)]
 
         if item0.successor_item is not None:
-            successor_item1 = self._create_item1(item0.successor_item, lookahead)
+            successor_item1 = self.i1_id_to_item1_hash[self._create_item1(item0.successor_item, lookahead)]
         else:
             successor_item1 = None
 
@@ -616,7 +616,7 @@ class ParserLALR1(ParserBase):
         )
         self.item1_core_to_i1_id_hash[(item0.id, lookahead)] = i1_id
         self.i1_id_to_item1_hash.append(item1)
-        return item1
+        return i1_id
 
     def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
         """计算每个非终结符中，所有可能的开头终结符
@@ -680,7 +680,7 @@ class ParserLALR1(ParserBase):
         item1_set_relation: List[Tuple[int, int, int]] = self.item1_set_relation
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
+        init_item1 = self.i1_id_to_item1_hash[self._create_item1(self.init_item0, self.grammar.end_terminal)]
         init_core_tuple = (init_item1,)
         core_tuple_to_sid_hash[init_core_tuple] = 0
         sid_to_core_tuple_hash.append(init_core_tuple)
@@ -713,7 +713,12 @@ class ParserLALR1(ParserBase):
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
-            for item1 in item1_set.all_item_list:
+            for item1 in item1_set.core_tuple:
+                successor_symbol = item1.item0.successor_symbol
+                if successor_symbol is not None:
+                    successor_group[successor_symbol].append(item1.successor_item)
+            for i1_id in item1_set.other_item1_set:
+                item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
                     successor_group[successor_symbol].append(item1.successor_item)
@@ -742,10 +747,12 @@ class ParserLALR1(ParserBase):
 
     def bfs_closure_item1(self,
                           core_tuple: Tuple[Item1]
-                          ) -> Set[Item1]:
+                          ) -> Set[int]:
         # pylint: disable=R0912
         # pylint: disable=R0914
         """广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
+
+        返回 LR(1) 项目的 ID 的集合
 
         【性能设计】这里采用广度优先搜索，是因为当 core_tuple 中包含多个 LR(1) 项目时，各个 LR(1) 项目的等价 LR(1) 项目之间往往会存在大量相同
         的元素；如果采用深度优先搜索，那么在查询缓存、合并结果、检查搜索条件是否相同时，会进行非常多的 Tuple[Item1, ...] 比较，此时会消耗更多的性
@@ -763,7 +770,7 @@ class ParserLALR1(ParserBase):
             项目集闭包中包含的项目列表
         """
         # 初始化项目集闭包中包含的其他项目列表
-        item_set: Set[Item1] = set()
+        item_set: Set[int] = set()
 
         # 初始化广度优先搜索的第 1 批节点
         visited_symbol_set = set()
@@ -794,7 +801,8 @@ class ParserLALR1(ParserBase):
             item_set |= diff_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
-            for sub_item1 in diff_set:
+            for i1_id in diff_set:
+                sub_item1 = self.i1_id_to_item1_hash[i1_id]
                 after_handle = sub_item1.item0.after_handle
                 if not after_handle:
                     continue  # 跳过匹配 %empty 的项目
@@ -824,8 +832,8 @@ class ParserLALR1(ParserBase):
     #     return item1_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[Item1]:
-        """计算 item1 单层的等价 LR(1) 项目
+    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[int]:
+        """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
 
@@ -850,7 +858,7 @@ class ParserLALR1(ParserBase):
         if first_symbol < n_terminal:
             return set()
 
-        sub_item_set = set()  # 当前项目组之后的所有可能的 lookahead
+        sub_item_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
 
         # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
         for item0 in self.symbol_to_start_item_list_hash[first_symbol]:
@@ -925,7 +933,7 @@ class ParserLALR1(ParserBase):
 
             # 构造新的项目集
             new_core_item_set: Set[Item1] = set()  # 新项目集的核心项目
-            new_other_item_set: Set[Item1] = set()  # 新项目集的其他等价项目
+            new_other_item_set: Set[int] = set()  # 新项目集的其他等价项目
             for item1_set in item1_set_list:
                 new_core_item_set |= set(item1_set.core_tuple)
                 new_other_item_set |= item1_set.other_item1_set
@@ -1003,7 +1011,19 @@ class ParserLALR1(ParserBase):
                     table[status_id][successor_symbol] = ActionGoto(status=next_status_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-            for sub_item1 in item1_set.all_item_list:
+            for sub_item1 in item1_set.core_tuple:
+                if sub_item1.item0.successor_symbol is None:
+                    reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
+                                                 n_param=len(sub_item1.item0.before_handle),
+                                                 reduce_function=sub_item1.item0.action)
+                    position_reduce_list_hash[(status_id, sub_item1.lookahead)].append((
+                        sub_item1.item0.rr_priority_idx,  # RR 优先级
+                        sub_item1.item0.sr_priority_idx,  # SR 优先级
+                        sub_item1.item0.sr_combine_type,  # SR 合并顺序
+                        reduce_action
+                    ))
+            for i1_id in item1_set.other_item1_set:
+                sub_item1 = self.i1_id_to_item1_hash[i1_id]
                 if sub_item1.item0.successor_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
                                                  n_param=len(sub_item1.item0.before_handle),
