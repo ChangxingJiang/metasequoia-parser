@@ -23,7 +23,7 @@ class ParserBase(abc.ABC):
         self.debug = debug
 
         # 计算 ACTION TABLE 和 GROUP TABLE 以及初始状态
-        self.table, self.entrance_status = self.create_action_table_and_goto_table()
+        self.table, self.entrance_status_id = self.create_action_table_and_goto_table()
 
         # print("---------- ACTION + GOTO ----------")
         # for i, row in enumerate(self.table):
@@ -49,7 +49,7 @@ class ParserBase(abc.ABC):
         context: ParsingContext = ParsingContext()
 
         # 初始化状态管理器：添加 -1 状态和 Start 元素
-        context.push_status(self.entrance_status)
+        context.push_status(self.entrance_status_id)
 
         # print("---------- Parsing ----------")
 

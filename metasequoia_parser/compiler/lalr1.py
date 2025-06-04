@@ -378,10 +378,10 @@ def compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: bool = Fal
     # ------------------------------ 【构造】主函数 ------------------------------
     source_script.extend([
         "def parse(lexical_iterator: ms_parser.lexical.LexicalBase):",
-        f"    status_stack = [{parser.entrance_status}]  # 初始化状态栈",
+        f"    status_stack = [{parser.entrance_status_id}]  # 初始化状态栈",
         "    symbol_stack = []  # 初始化对象栈",
         "",
-        f"    action = status_{parser.entrance_status}  # 初始化状态函数",
+        f"    action = status_{parser.entrance_status_id}  # 初始化状态函数",
         "    terminal = lexical_iterator.lex()  # 词法解析出下一个终结符",
         "    next_terminal = False",
         "    try:",

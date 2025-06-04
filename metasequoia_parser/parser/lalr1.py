@@ -103,29 +103,31 @@ class ParserLALR1(ParserBase):
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
-        assert len(self.sid_set) == len(
-            self.core_tuple_to_item1_set_hash), f"{len(self.sid_set)} != {len(self.core_tuple_to_item1_set_hash)}"
         self.core_tuple_to_status_hash = {core_tuple: i
                                           for i, core_tuple in
                                           enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
+        self.sid_to_status_hash = {
+            sid: i
+            for i, sid in enumerate(sorted(self.sid_set, key=lambda x: repr(self.sid_to_core_tuple_hash[x])))
+        }
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
 
-        # 生成初始状态
+        # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 生成初始状态开始")
         self.init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
-        self.entrance_status = self.core_tuple_to_status_hash[(self.init_item1,)]
+        self.entrance_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_item1,)]]
         LOGGER.info("[9 / 10] 生成初始状态结束")
 
         # 构造 ACTION 表 + GOTO 表
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
-        # 寻找结束项目集闭包
+        # 计算接受 LR(1) 项目集对应的状态 ID
         self.accept_s1_id = None
         for s1_id, core_tuple in enumerate(self.sid_to_core_tuple_hash):
             for item1 in core_tuple:
                 if item1.item0.is_accept():
                     self.accept_s1_id = s1_id
                     break
-        self.accept_status_id = self.core_tuple_to_status_hash[self.sid_to_core_tuple_hash[self.accept_s1_id]]
+        self.accept_status_id = self.sid_to_status_hash[self.accept_s1_id]
 
         self.table = self.create_lr_parsing_table_use_lalr1()
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
@@ -150,7 +152,7 @@ class ParserLALR1(ParserBase):
 
         pylint: disable=R0801 -- 未提高相似算法的代码可读性，允许不同算法之间存在少量相同代码
         """
-        return self.table, self.entrance_status
+        return self.table, self.entrance_status_id
 
     def cal_core_to_item1_set_hash(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
@@ -442,15 +444,12 @@ class ParserLALR1(ParserBase):
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
         for s1_id in self.sid_set:
-            core_tuple = self.sid_to_core_tuple_hash[s1_id]
-            item1_set = self.sid_to_item1_set_hash[s1_id]
-
-            # 获取项目集闭包对应的状态 ID
-            status_id = self.core_tuple_to_status_hash[core_tuple]
+            status_id = self.sid_to_status_hash[s1_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
+            item1_set = self.sid_to_item1_set_hash[s1_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
 
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
             for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
-                next_status_id = self.core_tuple_to_status_hash[successor_item1_set.core_tuple]
+                next_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[successor_item1_set.core_tuple]]
                 if self.grammar.is_terminal(successor_symbol):
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
                     position_shift_hash[(status_id, successor_symbol)] = ActionShift(status=next_status_id)
