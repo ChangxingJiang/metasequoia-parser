@@ -59,31 +59,6 @@ class ItemBase(abc.ABC):
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class ItemCentric:
-    """项目核心：适用于 LALR(1) 解析器的同心项目集计算
-
-    Parameters
-    ----------
-    reduce_name : str
-        规约的非终结符名称（即所在语义组名称）
-    before_handle : Tuple[str, ...]
-        在句柄之前的符号名称的列表
-    after_handle : Tuple[str, ...]
-        在句柄之后的符号名称的列表
-    """
-
-    reduce_name: int = dataclasses.field(kw_only=True)  # 规约的非终结符名称（即所在语义组名称）
-    before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之前的符号名称的列表
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 在句柄之后的符号名称的列表
-
-    def __repr__(self) -> str:
-        """将 ItemBase 转换为字符串表示"""
-        before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
-        after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
-        return f"{self.reduce_name}->{before_symbol_str}·{after_symbol_str}"
-
-
-@dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
 class Item0(ItemBase):
     """不提前查看下一个字符的项目类：适用于 LR(0) 解析器和 SLR 解析器
 
@@ -114,13 +89,6 @@ class Item0(ItemBase):
     sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
     sr_combine_type: CombineType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 合并顺序
     rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
-
-    # 【性能设计】__repr__() 函数的返回值：
-    # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
-    # repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
-
-    # 【性能设计】项目集核心
-    centric: ItemCentric = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     @staticmethod
     def create(i0_id: int,
@@ -170,12 +138,6 @@ class Item0(ItemBase):
             构造的 Item0 文法项目对象
         """
         # 【性能设计】提前计算项目集核心对象的返回值
-        centric = ItemCentric(
-            reduce_name=reduce_name,
-            before_handle=tuple(before_handle),
-            after_handle=tuple(after_handle),
-        )
-
         return Item0(
             id=i0_id,
             nonterminal_id=reduce_name,
@@ -188,7 +150,6 @@ class Item0(ItemBase):
             sr_priority_idx=sr_priority_idx,
             sr_combine_type=sr_combine_type,
             rr_priority_idx=rr_priority_idx,
-            centric=centric
         )
 
     def __repr__(self) -> str:
@@ -269,10 +230,6 @@ class Item1(ItemBase):
             lookahead=lookahead,
         )
         return item1
-
-    def get_centric(self) -> ItemCentric:
-        """获取项目核心：适用于 LALR(1) 解析器的同心项目集计算"""
-        return self.item0.centric
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
@@ -883,12 +840,12 @@ class ParserLALR1(ParserBase):
 
         return sub_item_set
 
-    def cal_concentric_hash(self) -> Dict[Tuple[ItemCentric, ...], List[Item1Set]]:
+    def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[Item1Set]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
 
         Returns
         -------
-        Dict[Tuple[ItemCentric, ...], List[Item1Set]]
+        Dict[Tuple[int, ...], List[Item1Set]]
             根据项目集核心聚合后的项目集
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
@@ -899,13 +856,7 @@ class ParserLALR1(ParserBase):
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
             item1_set = sid_to_item1_set_hash[sid]
-
-            # 计算项目集核心（先去重，再排序）
-            centric_list: List[ItemCentric] = list(set(self.i1_id_to_item1_hash[i1_id].get_centric()
-                                                       for i1_id in core_tuple))
-            centric_list.sort(key=lambda x: (x.reduce_name, x.before_handle, x.after_handle))
-            centric_tuple = tuple(centric_list)
-
+            centric_tuple = tuple(sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.id for i1_id in core_tuple))))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(item1_set)
         return concentric_hash
