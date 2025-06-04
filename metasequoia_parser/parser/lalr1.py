@@ -309,23 +309,18 @@ class Item1Set:
     """提前查看下一个字符的项目集闭包类：适用于 LR(1) 解析器和 LALR(1) 解析器"""
 
     sid: int = dataclasses.field(kw_only=True)
-    core_tuple: Tuple[Item1, ...] = dataclasses.field(kw_only=True)  # 核心项目
+    core_tuple: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 核心项目
     other_item1_set: Set[int] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
     successor_hash: Dict[int, "Item1Set"] = dataclasses.field(kw_only=True, default_factory=lambda: {})  # 后继项目的关联关系
 
     @staticmethod
-    def create(sid: int, core_list: Tuple[Item1], other_item1_set: Set[int]) -> "Item1Set":
+    def create(sid: int, core_list: Tuple[int, ...], other_item1_set: Set[int]) -> "Item1Set":
         """项目集闭包对象的构造方法"""
         return Item1Set(
             sid=sid,
             core_tuple=core_list,
             other_item1_set=other_item1_set
         )
-
-    @property
-    def all_item_list(self) -> List[Item1]:
-        """返回项目集中的所有项目的列表，包括核心项目和其他等价项目；在输出的列表中，第 0 个项目为核心项目"""
-        return list(self.core_tuple) + list(self.other_item1_set)
 
     def set_successor(self, symbol: int, successor: "Item1Set"):
         """设置 symbol 对应的后继项目"""
@@ -406,8 +401,8 @@ class ParserLALR1(ParserBase):
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.item1_set_relation: List[Tuple[int, int, int]] = []  # 核心项目之间的关联关系
-        self.core_tuple_to_sid_hash: Dict[Tuple[Item1, ...], int] = {}  # 核心项目到 SID1 的映射
-        self.sid_to_core_tuple_hash: List[Tuple[Item1, ...]] = []  # SID1 到核心项目的映射
+        self.core_tuple_to_sid_hash: Dict[Tuple[int, ...], int] = {}  # 核心项目到 SID1 的映射
+        self.sid_to_core_tuple_hash: List[Tuple[int, ...]] = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash: List[Item1Set] = []  # SID1 到 LR(1) 项目集的映射
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
@@ -445,7 +440,7 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 生成初始状态开始")
-        self.init_item1 = self.i1_id_to_item1_hash[self._create_item1(self.init_item0, self.grammar.end_terminal)]
+        self.init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
         self.entrance_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_item1,)]]
         LOGGER.info("[9 / 10] 生成初始状态结束")
 
@@ -454,7 +449,8 @@ class ParserLALR1(ParserBase):
         # 计算接受 LR(1) 项目集对应的状态 ID
         self.accept_s1_id = None
         for s1_id, core_tuple in enumerate(self.sid_to_core_tuple_hash):
-            for item1 in core_tuple:
+            for i1_id in core_tuple:
+                item1 = self.i1_id_to_item1_hash[i1_id]
                 if item1.item0.is_accept():
                     self.accept_s1_id = s1_id
                     break
@@ -674,14 +670,14 @@ class ParserLALR1(ParserBase):
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        core_tuple_to_sid_hash: Dict[Tuple[Item1, ...], int] = self.core_tuple_to_sid_hash
-        sid_to_core_tuple_hash: List[Tuple[Item1, ...]] = self.sid_to_core_tuple_hash
+        core_tuple_to_sid_hash: Dict[Tuple[int, ...], int] = self.core_tuple_to_sid_hash
+        sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
         sid_to_item1_set_hash: List[Item1Set] = self.sid_to_item1_set_hash
         item1_set_relation: List[Tuple[int, int, int]] = self.item1_set_relation
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        init_item1 = self.i1_id_to_item1_hash[self._create_item1(self.init_item0, self.grammar.end_terminal)]
-        init_core_tuple = (init_item1,)
+        init_i1_id = self._create_item1(self.init_item0, self.grammar.end_terminal)
+        init_core_tuple = (init_i1_id,)
         core_tuple_to_sid_hash[init_core_tuple] = 0
         sid_to_core_tuple_hash.append(init_core_tuple)
 
@@ -713,7 +709,8 @@ class ParserLALR1(ParserBase):
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
-            for item1 in item1_set.core_tuple:
+            for i1_id in item1_set.core_tuple:
+                item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
                     successor_group[successor_symbol].append(item1.successor_item)
@@ -726,7 +723,8 @@ class ParserLALR1(ParserBase):
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
             for successor_symbol, sub_item1_set in successor_group.items():
-                successor_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=repr))
+                successor_item1_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=repr))
+                successor_core_tuple = tuple(item1.id for item1 in successor_item1_core_tuple)
                 if successor_core_tuple not in core_tuple_to_sid_hash:
                     successor_sid1 = len(core_tuple_to_sid_hash)
                     core_tuple_to_sid_hash[successor_core_tuple] = successor_sid1
@@ -746,7 +744,7 @@ class ParserLALR1(ParserBase):
                     visited.add(successor_sid1)
 
     def bfs_closure_item1(self,
-                          core_tuple: Tuple[Item1]
+                          core_tuple: Tuple[int]
                           ) -> Set[int]:
         # pylint: disable=R0912
         # pylint: disable=R0914
@@ -775,7 +773,8 @@ class ParserLALR1(ParserBase):
         # 初始化广度优先搜索的第 1 批节点
         visited_symbol_set = set()
         queue = collections.deque()
-        for item1 in core_tuple:
+        for i1_id in core_tuple:
+            item1 = self.i1_id_to_item1_hash[i1_id]
             after_handle = item1.item0.after_handle
 
             # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
@@ -901,7 +900,7 @@ class ParserLALR1(ParserBase):
             根据项目集核心聚合后的项目集
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        sid_to_core_tuple_hash: List[Tuple[Item1, ...]] = self.sid_to_core_tuple_hash
+        sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
         sid_to_item1_set_hash: List[Item1Set] = self.sid_to_item1_set_hash
 
         concentric_hash = collections.defaultdict(list)
@@ -910,7 +909,8 @@ class ParserLALR1(ParserBase):
             item1_set = sid_to_item1_set_hash[sid]
 
             # 计算项目集核心（先去重，再排序）
-            centric_list: List[ItemCentric] = list(set(core_item1.get_centric() for core_item1 in core_tuple))
+            centric_list: List[ItemCentric] = list(set(self.i1_id_to_item1_hash[i1_id].get_centric()
+                                                       for i1_id in core_tuple))
             centric_list.sort(key=lambda x: (x.reduce_name, x.before_handle, x.after_handle))
             centric_tuple = tuple(centric_list)
 
@@ -923,8 +923,8 @@ class ParserLALR1(ParserBase):
         """合并 LR(1) 项目集核心相同的 LR(1) 项目集（原地更新）"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        core_tuple_to_sid_hash: Dict[Tuple[Item1, ...], int] = self.core_tuple_to_sid_hash
-        sid_to_core_tuple_hash: List[Tuple[Item1, ...]] = self.sid_to_core_tuple_hash
+        core_tuple_to_sid_hash: Dict[Tuple[int, ...], int] = self.core_tuple_to_sid_hash
+        sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
         sid_to_item1_set_hash: List[Item1Set] = self.sid_to_item1_set_hash
 
         for _, item1_set_list in self.concentric_hash.items():
@@ -932,7 +932,7 @@ class ParserLALR1(ParserBase):
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
 
             # 构造新的项目集
-            new_core_item_set: Set[Item1] = set()  # 新项目集的核心项目
+            new_core_item_set: Set[int] = set()  # 新项目集的核心项目
             new_other_item_set: Set[int] = set()  # 新项目集的其他等价项目
             for item1_set in item1_set_list:
                 new_core_item_set |= set(item1_set.core_tuple)
@@ -940,7 +940,7 @@ class ParserLALR1(ParserBase):
 
             # 通过排序逻辑以保证结果状态是稳定的
             new_core_item_list = list(new_core_item_set)
-            new_core_item_list.sort()
+            new_core_item_list.sort(key=lambda x: self.i1_id_to_item1_hash[x])
             new_core_tuple = tuple(new_core_item_list)
 
             if new_core_tuple not in self.core_tuple_to_sid_hash:
@@ -1011,7 +1011,8 @@ class ParserLALR1(ParserBase):
                     table[status_id][successor_symbol] = ActionGoto(status=next_status_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-            for sub_item1 in item1_set.core_tuple:
+            for i1_id in item1_set.core_tuple:
+                sub_item1 = self.i1_id_to_item1_hash[i1_id]
                 if sub_item1.item0.successor_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
                                                  n_param=len(sub_item1.item0.before_handle),
