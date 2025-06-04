@@ -194,14 +194,6 @@ class Item1(ItemBase):
     # 通过在构造时添加 Item1 项目集的唯一 ID，从而将 Item1 项目集的哈希计算优化为直接获取唯一 ID
     id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
-    # 【性能设计】__repr__() 函数的返回值：
-    # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
-    # repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
-
-    # 【性能设计】享元模式缓存器
-    # 通过享元模式，避免 Item1 对象被重复构造，以提高 Item1 对象的构造速度；通过这个字典也可以用于唯一 ID 的构造计数
-    _INSTANCE_HASH = {}
-
     # -------------------- 项目的基本属性 --------------------
     item0: Item0 = dataclasses.field(kw_only=True, hash=False, compare=True)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 展望符（终结符）
