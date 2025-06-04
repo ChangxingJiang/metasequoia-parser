@@ -98,9 +98,6 @@ class Item0(ItemBase):
     # 通过在构造时添加 Item0 项目集的唯一 ID，从而将 Item0 项目集的哈希计算优化为直接获取唯一 ID
     id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
-    # 唯一 ID 生成计数器
-    _INSTANCE_CNT = 0
-
     # -------------------- 项目的基本信息（节点属性）--------------------
     nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
     before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之前的符号名称的列表
@@ -254,7 +251,7 @@ class Item1(ItemBase):
     successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
 
     @staticmethod
-    def create_by_item0(item0: Item0, lookahead) -> "Item1":
+    def create_by_item0(i1_id: int, item0: Item0, lookahead: int, successor_item1: Optional["Item1"]) -> "Item1":
         """采用享元模式，通过 Item0 对象和 lookahead 构造 Item1 对象
 
         Parameters
@@ -269,21 +266,13 @@ class Item1(ItemBase):
         Item1
             构造的 Item1 文法项目对象
         """
-        item1 = Item1._INSTANCE_HASH.get((item0, lookahead))
-        if item1 is not None:
-            return item1
-
-        successor_item1 = (Item1.create_by_item0(item0.successor_item, lookahead)
-                           if item0.successor_item is not None else None)
-
         item1 = Item1(
-            id=len(Item1._INSTANCE_HASH),
+            id=i1_id,
             item0=item0,
             successor_item=successor_item1,
             lookahead=lookahead,
             repr_value=f"{item0.repr_value},{lookahead}"  # 计算 __repr__ 函数的返回值
         )
-        Item1._INSTANCE_HASH[(item0, lookahead)] = item1
         return item1
 
     def get_centric(self) -> ItemCentric:
@@ -382,9 +371,18 @@ class ParserLALR1(ParserBase):
             self.profiler = cProfile.Profile()
             self.profiler.enable()
 
+        # LR(0) 项目 ID 到 LR(0) 项目对象的映射
+        self.i0_id_to_item0_hash: List[Item0] = []
+
+        # LR(1) 项目核心元组到 LR(1) 项目 ID 的映射
+        # - LR(1) 项目核心元组包括指向的 LR(0) 项目 ID 和展望符
+        self.item1_core_to_i1_id_hash: Dict[Tuple[int, int], int] = {}
+
+        # LR(1) 项目 ID 到 LR(1) 项目对象的映射
+        self.i1_id_to_item1_hash: List[Item1] = []
+
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
-        self.i0_id_to_item0_hash: List[Item0] = []
         self.cal_all_item0_list()
         LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.i0_id_to_item0_hash)})")
 
@@ -447,7 +445,7 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 生成初始状态开始")
-        self.init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
+        self.init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
         self.entrance_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_item1,)]]
         LOGGER.info("[9 / 10] 生成初始状态结束")
 
@@ -598,6 +596,28 @@ class ParserLALR1(ParserBase):
                 return item0
         raise KeyError("未从项目列表中获取到 INIT 项目")
 
+    def _create_item1(self, item0: Item0, lookahead: int):
+        """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
+        # 如果 item1 已经存在则返回已存在 item1
+        if (item0.id, lookahead) in self.item1_core_to_i1_id_hash:
+            return self.i1_id_to_item1_hash[self.item1_core_to_i1_id_hash[(item0.id, lookahead)]]
+
+        if item0.successor_item is not None:
+            successor_item1 = self._create_item1(item0.successor_item, lookahead)
+        else:
+            successor_item1 = None
+
+        i1_id = len(self.i1_id_to_item1_hash)
+        item1 = Item1.create_by_item0(
+            i1_id=i1_id,
+            item0=item0,
+            lookahead=lookahead,
+            successor_item1=successor_item1
+        )
+        self.item1_core_to_i1_id_hash[(item0.id, lookahead)] = i1_id
+        self.i1_id_to_item1_hash.append(item1)
+        return item1
+
     def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
         """计算每个非终结符中，所有可能的开头终结符
 
@@ -660,7 +680,7 @@ class ParserLALR1(ParserBase):
         item1_set_relation: List[Tuple[int, int, int]] = self.item1_set_relation
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
+        init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
         init_core_tuple = (init_item1,)
         core_tuple_to_sid_hash[init_core_tuple] = 0
         sid_to_core_tuple_hash.append(init_core_tuple)
@@ -786,6 +806,23 @@ class ParserLALR1(ParserBase):
 
         return item_set
 
+    # @lru_cache(maxsize=None)
+    # def dfs_closure_item1(self, item1: Item1) -> Set[Item1]:
+    #     """广度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
+    #     after_handle = item1.item0.after_handle
+    #     if not after_handle:
+    #         return set()
+    #
+    #     # 计算单层的等价 LR(1) 项目
+    #     item1_set = self.compute_single_level_lr1_closure(
+    #         after_handle=after_handle,
+    #         lookahead=item1.lookahead
+    #     )
+    #     for sub_item1 in list(item1_set):
+    #         if item1 != sub_item1:
+    #             item1_set |= self.dfs_closure_item1(sub_item1)
+    #     return item1_set
+
     @lru_cache(maxsize=None)
     def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[Item1]:
         """计算 item1 单层的等价 LR(1) 项目
@@ -826,13 +863,13 @@ class ParserLALR1(ParserBase):
                 # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
                 # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
                 if next_symbol < n_terminal:
-                    sub_item_set.add(Item1.create_by_item0(item0, next_symbol))  # 自生后继符
+                    sub_item_set.add(self._create_item1(item0, next_symbol))  # 自生后继符
                     is_stop = True
                     break
 
                 # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
                 for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                    sub_item_set.add(Item1.create_by_item0(item0, start_terminal))  # 自生后继符
+                    sub_item_set.add(self._create_item1(item0, start_terminal))  # 自生后继符
 
                 # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
                 if not self.grammar.is_maybe_empty(next_symbol):
@@ -843,7 +880,7 @@ class ParserLALR1(ParserBase):
 
             # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
             if is_stop is False:
-                sub_item_set.add(Item1.create_by_item0(item0, lookahead))  # 继承后继符
+                sub_item_set.add(self._create_item1(item0, lookahead))  # 继承后继符
 
         return sub_item_set
 
