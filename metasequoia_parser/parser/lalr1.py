@@ -97,6 +97,7 @@ class ParserLALR1(ParserBase):
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
+        self.s1_id_relation = collections.defaultdict(dict)
         self.create_item1_set_relation()
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系结束")
 
@@ -410,9 +411,7 @@ class ParserLALR1(ParserBase):
         for sid1, successor_symbol, successor_sid1 in self.core_tuple_relation:
             new_sid1 = self.core_tuple_hash.get(sid1, sid1)
             new_successor_sid1 = self.core_tuple_hash.get(successor_sid1, successor_sid1)
-            from_item1_set = self.sid_to_item1_set_hash[new_sid1]
-            to_item1_set = self.sid_to_item1_set_hash[new_successor_sid1]
-            from_item1_set.set_successor(successor_symbol, to_item1_set)
+            self.s1_id_relation[new_sid1][successor_symbol] = new_successor_sid1
 
     def create_lr_parsing_table_use_lalr1(self) -> List[List[Callable]]:
         # pylint: disable=R0801
@@ -441,8 +440,8 @@ class ParserLALR1(ParserBase):
             item1_set = self.sid_to_item1_set_hash[s1_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
 
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
-            for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
-                next_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[successor_item1_set.core_tuple]]
+            for successor_symbol, successor_s1_id in self.s1_id_relation[s1_id].items():
+                next_status_id = self.sid_to_status_hash[successor_s1_id]
                 if self.grammar.is_terminal(successor_symbol):
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
                     position_shift_hash[(status_id, successor_symbol)] = ActionShift(status=next_status_id)
