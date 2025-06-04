@@ -129,7 +129,8 @@ class Item0(ItemBase):
     centric: ItemCentric = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     @staticmethod
-    def create(reduce_name: int,
+    def create(i0_id: int,
+               reduce_name: int,
                before_handle: List[int],
                after_handle: List[int],
                action: Callable,
@@ -146,7 +147,9 @@ class Item0(ItemBase):
 
         Parameters
         ----------
-        reduce_name : str
+        i0_id : int
+            唯一 ID
+        reduce_name : int
             规约的非终结符名称（即所在语义组名称）
         before_handle : List[str]
             在句柄之前的符号名称的列表
@@ -177,9 +180,6 @@ class Item0(ItemBase):
         after_symbol_str = " ".join(str(symbol) for symbol in after_handle)
         repr_value = f"{reduce_name}->{before_symbol_str}·{after_symbol_str}"
 
-        # 【性能设计】Item0 项目集唯一 ID 计数器累加
-        Item0._INSTANCE_CNT += 1
-
         # 【性能设计】提前计算项目集核心对象的返回值
         centric = ItemCentric(
             reduce_name=reduce_name,
@@ -188,7 +188,7 @@ class Item0(ItemBase):
         )
 
         return Item0(
-            id=Item0._INSTANCE_CNT,
+            id=i0_id,
             nonterminal_id=reduce_name,
             before_handle=tuple(before_handle),
             after_handle=tuple(after_handle),

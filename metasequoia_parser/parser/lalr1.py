@@ -16,7 +16,6 @@ from metasequoia_parser.common import Item1Set
 from metasequoia_parser.common import ItemCentric
 from metasequoia_parser.common import ItemType
 from metasequoia_parser.common import ParserBase
-from metasequoia_parser.functions import cal_all_item0_list
 from metasequoia_parser.functions import cal_init_item_from_item_list
 from metasequoia_parser.functions import cal_symbol_to_start_item_list_hash
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
@@ -52,22 +51,23 @@ class ParserLALR1(ParserBase):
 
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
-        self.item0_list: List[Item0] = cal_all_item0_list(self.grammar)
-        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.item0_list)})")
+        self.i0_id_to_item0_hash: List[Item0] = []
+        self.cal_all_item0_list()
+        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.i0_id_to_item0_hash)})")
 
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
-        self.symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(self.item0_list)
+        self.symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(self.i0_id_to_item0_hash)
         LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
                     f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
 
         # 从项目列表中获取入口项目
         LOGGER.info("[3 / 10] 从项目列表中获取入口项目开始")
-        self.init_item0 = cal_init_item_from_item_list(self.item0_list)
+        self.init_item0 = cal_init_item_from_item_list(self.i0_id_to_item0_hash)
         LOGGER.info("[3 / 10] 从项目列表中获取入口项目结束")
 
         # 计算所有非终结符名称的列表
-        nonterminal_name_list = list({item0.nonterminal_id for item0 in self.item0_list})
+        nonterminal_name_list = list({item0.nonterminal_id for item0 in self.i0_id_to_item0_hash})
 
         # 计算每个非终结符中，所有可能的开头终结符
         self.nonterminal_all_start_terminal = cal_nonterminal_all_start_terminal(self.grammar, nonterminal_name_list)
@@ -78,7 +78,10 @@ class ParserLALR1(ParserBase):
         self.core_tuple_to_sid_hash = {}  # 核心项目到 SID1 的映射
         self.sid_to_core_tuple_hash = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash = []  # SID1 到 LR(1) 项目集的映射
-        self.cal_core_to_item1_set_hash()
+
+        # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
+        self.bfs_search_item1_set()
+
         self.sid_set = set(range(len(self.sid_to_core_tuple_hash)))  # 有效 SID1 的集合
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                     f"(搜索后 LR(1) 项目集数量 = {len(self.sid_set)})")
@@ -151,7 +154,94 @@ class ParserLALR1(ParserBase):
         """
         return self.table, self.entrance_status_id
 
-    def cal_core_to_item1_set_hash(self) -> None:
+    def cal_all_item0_list(self) -> None:
+        """根据文法对象 Grammar 计算出所有项目（Item0 对象）的列表，并生成项目之间的后继关系
+
+        Returns
+        -------
+        List[Item0]
+            所有项目的列表
+        """
+        for product in self.grammar.get_product_list():
+            if self.grammar.is_entrance_symbol(product.nonterminal_id):
+                # 当前生成式是入口生成式
+                last_item_type = ItemType.ACCEPT
+                first_item_type = ItemType.INIT
+            else:
+                last_item_type = ItemType.REDUCE
+                first_item_type = ItemType.SHIFT
+
+            # 如果为 %empty，则仅构造一个规约项目
+            if len(product.symbol_id_list) == 0:
+                i0_id = len(self.i0_id_to_item0_hash)
+                self.i0_id_to_item0_hash.append(Item0.create(
+                    i0_id=i0_id,
+                    reduce_name=product.nonterminal_id,
+                    before_handle=[],
+                    after_handle=[],
+                    action=product.action,
+                    item_type=last_item_type,
+                    successor_symbol=None,  # 规约项目不存在后继项目
+                    successor_item=None,  # 规约项目不存在后继项目
+                    sr_priority_idx=product.sr_priority_idx,
+                    sr_combine_type=product.sr_combine_type,
+                    rr_priority_idx=product.rr_priority_idx
+                ))
+                continue
+
+            # 添加句柄在结束位置（最右侧）的项目（规约项目）
+            i0_id = len(self.i0_id_to_item0_hash)
+            last_item = Item0.create(
+                i0_id=i0_id,
+                reduce_name=product.nonterminal_id,
+                before_handle=product.symbol_id_list,
+                after_handle=[],
+                action=product.action,
+                item_type=last_item_type,
+                successor_symbol=None,  # 规约项目不存在后继项目
+                successor_item=None,  # 规约项目不存在后继项目
+                sr_priority_idx=product.sr_priority_idx,
+                sr_combine_type=product.sr_combine_type,
+                rr_priority_idx=product.rr_priority_idx
+            )
+            self.i0_id_to_item0_hash.append(last_item)
+
+            # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
+            for i in range(len(product.symbol_id_list) - 1, 0, -1):
+                i0_id = len(self.i0_id_to_item0_hash)
+                now_item = Item0.create(
+                    i0_id=i0_id,
+                    reduce_name=product.nonterminal_id,
+                    before_handle=product.symbol_id_list[:i],
+                    after_handle=product.symbol_id_list[i:],
+                    action=product.action,
+                    item_type=ItemType.SHIFT,
+                    successor_symbol=product.symbol_id_list[i],
+                    successor_item=last_item,
+                    sr_priority_idx=product.sr_priority_idx,
+                    sr_combine_type=product.sr_combine_type,
+                    rr_priority_idx=product.rr_priority_idx
+                )
+                self.i0_id_to_item0_hash.append(now_item)
+                last_item = now_item
+
+            # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
+            i0_id = len(self.i0_id_to_item0_hash)
+            self.i0_id_to_item0_hash.append(Item0.create(
+                i0_id=i0_id,
+                reduce_name=product.nonterminal_id,
+                before_handle=[],
+                after_handle=product.symbol_id_list,
+                action=product.action,
+                item_type=first_item_type,
+                successor_symbol=product.symbol_id_list[0],
+                successor_item=last_item,
+                sr_priority_idx=product.sr_priority_idx,
+                sr_combine_type=product.sr_combine_type,
+                rr_priority_idx=product.rr_priority_idx
+            ))
+
+    def bfs_search_item1_set(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         init_item1 = Item1.create_by_item0(self.init_item0, self.grammar.end_terminal)
@@ -174,8 +264,8 @@ class ParserLALR1(ParserBase):
 
             idx += 1
 
-            # 根据项目集核心项目元组生成项目集闭包中包含的其他项目列表
-            other_item1_set = self.closure_item1(core_tuple)
+            # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
+            other_item1_set = self.bfs_closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
@@ -214,12 +304,12 @@ class ParserLALR1(ParserBase):
                     queue.append(successor_sid1)
                     visited.add(successor_sid1)
 
-    def closure_item1(self,
-                      core_tuple: Tuple[Item1]
-                      ) -> Set[Item1]:
+    def bfs_closure_item1(self,
+                          core_tuple: Tuple[Item1]
+                          ) -> Set[Item1]:
         # pylint: disable=R0912
         # pylint: disable=R0914
-        """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
+        """广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
 
         【性能设计】这里采用广度优先搜索，是因为当 core_tuple 中包含多个 LR(1) 项目时，各个 LR(1) 项目的等价 LR(1) 项目之间往往会存在大量相同
         的元素；如果采用深度优先搜索，那么在查询缓存、合并结果、检查搜索条件是否相同时，会进行非常多的 Tuple[Item1, ...] 比较，此时会消耗更多的性
