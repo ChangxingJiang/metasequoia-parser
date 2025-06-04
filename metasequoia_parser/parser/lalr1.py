@@ -5,8 +5,10 @@ LR(1) 文法解析器
 import cProfile
 import collections
 from functools import lru_cache
-from typing import Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
+from metasequoia_parser.common import ActionAccept, ActionError, ActionGoto, ActionReduce, ActionShift
+from metasequoia_parser.common import CombineType
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import Item0
 from metasequoia_parser.common import Item1
@@ -14,12 +16,11 @@ from metasequoia_parser.common import Item1Set
 from metasequoia_parser.common import ItemCentric
 from metasequoia_parser.common import ItemType
 from metasequoia_parser.common import ParserBase
-from metasequoia_parser.functions import cal_accept_item_from_item_list
 from metasequoia_parser.functions import cal_all_item0_list
 from metasequoia_parser.functions import cal_init_item_from_item_list
 from metasequoia_parser.functions import cal_symbol_to_start_item_list_hash
-from metasequoia_parser.functions import create_lr_parsing_table_use_lalr1
 from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
+from metasequoia_parser.functions.table_full_error import table_full_error
 from metasequoia_parser.utils import LOGGER
 
 # 接受（ACCEPT）类型或规约（REDUCE）类型的集合
@@ -79,6 +80,7 @@ class ParserLALR1(ParserBase):
         self.sid_to_item1_set_hash = []  # SID1 到 LR(1) 项目集的映射
         self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = {}  # 核心项目到 LR(1) 项目集的映射
         self.cal_core_to_item1_set_hash()
+        self.sid_set = set(range(len(self.sid_to_core_tuple_hash)))  # 有效 SID1 的集合
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
                     f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
 
@@ -101,6 +103,8 @@ class ParserLALR1(ParserBase):
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
+        assert len(self.sid_set) == len(
+            self.core_tuple_to_item1_set_hash), f"{len(self.sid_set)} != {len(self.core_tuple_to_item1_set_hash)}"
         self.core_tuple_to_status_hash = {core_tuple: i
                                           for i, core_tuple in
                                           enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
@@ -114,19 +118,16 @@ class ParserLALR1(ParserBase):
 
         # 构造 ACTION 表 + GOTO 表
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
-        accept_item0 = cal_accept_item_from_item_list(self.item0_list)
-        accept_item1 = Item1.create_by_item0(accept_item0, self.grammar.end_terminal)
-        accept_item1_set = None
-        for core_tuple, item1_set in self.core_tuple_to_item1_set_hash.items():
-            if accept_item1 in core_tuple:
-                accept_item1_set = item1_set
+        # 寻找结束项目集闭包
+        self.accept_s1_id = None
+        for s1_id, core_tuple in enumerate(self.sid_to_core_tuple_hash):
+            for item1 in core_tuple:
+                if item1.item0.is_accept():
+                    self.accept_s1_id = s1_id
+                    break
+        self.accept_status_id = self.core_tuple_to_status_hash[self.sid_to_core_tuple_hash[self.accept_s1_id]]
 
-        self.table = create_lr_parsing_table_use_lalr1(
-            grammar=self.grammar,
-            core_tuple_to_status_hash=self.core_tuple_to_status_hash,
-            core_tuple_to_item1_set_hash=self.core_tuple_to_item1_set_hash,
-            accept_item1_set=accept_item1_set
-        )
+        self.table = self.create_lr_parsing_table_use_lalr1()
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
 
         if self.profile:
@@ -398,6 +399,12 @@ class ParserLALR1(ParserBase):
             for item1_set in item1_set_list:
                 self.core_tuple_hash[item1_set.sid] = new_sid1
 
+            # 整理记录有效 SID1 的集合
+            for item1_set in item1_set_list:
+                if item1_set.sid in self.sid_set:
+                    self.sid_set.remove(item1_set.sid)
+            self.sid_set.add(new_sid1)
+
             # 从核心项目到项目集闭包的映射中移除旧项目集，添加新项目集
             for item1_set in item1_set_list:
                 self.core_tuple_to_item1_set_hash.pop(item1_set.core_tuple)
@@ -411,3 +418,115 @@ class ParserLALR1(ParserBase):
             from_item1_set = self.sid_to_item1_set_hash[new_sid1]
             to_item1_set = self.sid_to_item1_set_hash[new_successor_sid1]
             from_item1_set.set_successor(successor_symbol, to_item1_set)
+
+    def create_lr_parsing_table_use_lalr1(self) -> List[List[Callable]]:
+        # pylint: disable=R0801
+        # pylint: disable=R0912
+        # pylint: disable=R0914
+        """使用 LR(1) 解析器的逻辑，构造 LR_Parsing_Table
+
+        pylint: disable=R0801 -- 未提高相似算法的代码可读性，允许不同算法之间存在少量相同代码
+
+        Returns
+        -------
+        table : List[List[Callable]]
+            ACTION 表 + GOTO 表
+        """
+        # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
+        n_status = len(self.sid_set)
+        table: List[List[Optional[Callable]]] = [[None] * self.grammar.n_symbol for _ in range(n_status)]
+
+        position_shift_hash = {}  # ACTION + GOTO 表位置到移进操作列表的哈希映射（每个位置至多有一个 Shift 行为）
+        position_reduce_list_hash = collections.defaultdict(list)  # ACTION + GOTO 表位置到规约操作列表的哈希映射（每个位置可以有多个 Reduce 行为）
+
+        # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
+        # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
+        for s1_id in self.sid_set:
+            core_tuple = self.sid_to_core_tuple_hash[s1_id]
+            item1_set = self.sid_to_item1_set_hash[s1_id]
+
+            # 获取项目集闭包对应的状态 ID
+            status_id = self.core_tuple_to_status_hash[core_tuple]
+
+            # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
+            for successor_symbol, successor_item1_set in item1_set.successor_hash.items():
+                next_status_id = self.core_tuple_to_status_hash[successor_item1_set.core_tuple]
+                if self.grammar.is_terminal(successor_symbol):
+                    # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
+                    position_shift_hash[(status_id, successor_symbol)] = ActionShift(status=next_status_id)
+                else:
+                    # 后继项目为非终结符，填充 GOTO 表
+                    table[status_id][successor_symbol] = ActionGoto(status=next_status_id)
+
+            # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
+            for sub_item1 in item1_set.all_item_list:
+                if sub_item1.item0.successor_symbol is None:
+                    reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
+                                                 n_param=len(sub_item1.item0.before_handle),
+                                                 reduce_function=sub_item1.item0.action)
+                    position_reduce_list_hash[(status_id, sub_item1.lookahead)].append((
+                        sub_item1.item0.rr_priority_idx,  # RR 优先级
+                        sub_item1.item0.sr_priority_idx,  # SR 优先级
+                        sub_item1.item0.sr_combine_type,  # SR 合并顺序
+                        reduce_action
+                    ))
+
+        # ------------------------------ 处理 规约/规约冲突 ------------------------------
+        position_reduce_hash = {}  # 解除 规约/规约冲突 后的每个位置的 Reduce 行为（至多有 1 个）
+        for position, reduce_list in position_reduce_list_hash.items():
+            reduce_list.sort(key=lambda x: x[0], reverse=True)  # 根据 RR 优先级倒序排序
+            position_reduce_hash[position] = reduce_list[0]  # 选择 RR 优先级最大的 Reduce 行为
+
+        # ------------------------------ 处理 移进/规约冲突 ------------------------------
+        shift_position_set = set(position_shift_hash.keys())
+        reduce_position_set = set(position_reduce_hash.keys())
+
+        # 如果只有移进行为，没有移进/规约冲突，则直接写入移进行为
+        for position in shift_position_set - reduce_position_set:
+            status_id, successor_symbol = position
+            action_shift = position_shift_hash[position]
+            table[status_id][successor_symbol] = action_shift
+
+        # 如果只有规约行为，没有移进/规约冲突，则直接写入规约行为
+        for position in reduce_position_set - shift_position_set:
+            status_id, successor_symbol = position
+            _, _, _, action_reduce = position_reduce_hash[position]
+            table[status_id][successor_symbol] = action_reduce
+
+        # 如果既有移进行为、又有规约行为，存在移进/规约冲突，则进入处理逻辑
+        for position in shift_position_set & reduce_position_set:
+            status_id, successor_symbol = position
+
+            # 获取移进行为信息
+            action_shift = position_shift_hash[position]
+            shift_sr_priority_idx = self.grammar.get_terminal_sr_priority_idx(successor_symbol)  # 移进行为 SR 优先级
+            shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(successor_symbol)  # 移进行为 SR 结合顺序
+
+            # 获取规约行为信息
+            _, reduce_sr_priority_idx, _, action_reduce = position_reduce_hash[position]
+
+            if reduce_sr_priority_idx > shift_sr_priority_idx:
+                # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
+                table[status_id][successor_symbol] = action_reduce
+            elif reduce_sr_priority_idx < shift_sr_priority_idx:
+                # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进
+                table[status_id][successor_symbol] = action_shift
+            else:  # reduce_sr_priority_idx == shift_sr_priority_idx
+                # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一个终结符的 SR 优先级，则根据该符号的结合方向
+                if shift_sr_combine_type == CombineType.LEFT:
+                    # 如果结合方向为从左到右，则进行规约
+                    table[status_id][successor_symbol] = action_reduce
+                elif shift_sr_combine_type == CombineType.RIGHT:
+                    # 如果结合方向为从右到左，则进行移进
+                    table[status_id][successor_symbol] = action_shift
+                else:
+                    # 如果既不是左结合也不是右结合，则抛出异常
+                    table[status_id][successor_symbol] = ActionError()
+
+        # 当接受项目集闭包接收到结束符时，填充 Accept 行为
+        table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
+
+        # 将 ACTION 表和 GOTO 表中所有没有填充的位置全部置为 ERROR 行为（原地更新）
+        table_full_error(table=table)
+
+        return table
