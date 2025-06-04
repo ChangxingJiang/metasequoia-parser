@@ -117,7 +117,7 @@ class Item0(ItemBase):
 
     # 【性能设计】__repr__() 函数的返回值：
     # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
-    repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
+    # repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     # 【性能设计】项目集核心
     centric: ItemCentric = dataclasses.field(kw_only=True, hash=False, compare=False)
@@ -169,11 +169,6 @@ class Item0(ItemBase):
         Item0
             构造的 Item0 文法项目对象
         """
-        # 【性能设计】提前计算 __repr__() 函数的返回值
-        before_symbol_str = " ".join(str(symbol) for symbol in before_handle)
-        after_symbol_str = " ".join(str(symbol) for symbol in after_handle)
-        repr_value = f"{reduce_name}->{before_symbol_str}·{after_symbol_str}"
-
         # 【性能设计】提前计算项目集核心对象的返回值
         centric = ItemCentric(
             reduce_name=reduce_name,
@@ -193,13 +188,14 @@ class Item0(ItemBase):
             sr_priority_idx=sr_priority_idx,
             sr_combine_type=sr_combine_type,
             rr_priority_idx=rr_priority_idx,
-            repr_value=repr_value,
             centric=centric
         )
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
-        return self.repr_value
+        before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
+        after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
+        return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str}"
 
     def get_symbol_id(self) -> int:
         """获取符号 ID"""
@@ -239,7 +235,7 @@ class Item1(ItemBase):
 
     # 【性能设计】__repr__() 函数的返回值：
     # 之所以在初始化中指定，是因为这个对象是不可变的 dataclasses 类型，无法实现缓存器的逻辑
-    repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
+    # repr_value: str = dataclasses.field(kw_only=True, hash=False, compare=False)
 
     # 【性能设计】享元模式缓存器
     # 通过享元模式，避免 Item1 对象被重复构造，以提高 Item1 对象的构造速度；通过这个字典也可以用于唯一 ID 的构造计数
@@ -271,7 +267,6 @@ class Item1(ItemBase):
             item0=item0,
             successor_item=successor_item1,
             lookahead=lookahead,
-            repr_value=f"{item0.repr_value},{lookahead}"  # 计算 __repr__ 函数的返回值
         )
         return item1
 
@@ -281,7 +276,7 @@ class Item1(ItemBase):
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
-        return self.repr_value
+        return f"{self.item0},{self.lookahead}"
 
     def get_symbol_id(self) -> int:
         """获取符号 ID"""
