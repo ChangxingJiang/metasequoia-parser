@@ -432,10 +432,7 @@ class ParserLALR1(ParserBase):
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
-        self.sid_to_status_hash = {
-            sid: i
-            for i, sid in enumerate(sorted(self.sid_set, key=lambda x: repr(self.sid_to_core_tuple_hash[x])))
-        }
+        self.sid_to_status_hash = {sid: i for i, sid in enumerate(sorted(self.sid_set))}
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
 
         # 计算入口 LR(1) 项目集对应的状态 ID
@@ -723,7 +720,7 @@ class ParserLALR1(ParserBase):
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
             for successor_symbol, sub_item1_set in successor_group.items():
-                successor_item1_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=repr))
+                successor_item1_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=lambda x: x.id))
                 successor_core_tuple = tuple(item1.id for item1 in successor_item1_core_tuple)
                 if successor_core_tuple not in core_tuple_to_sid_hash:
                     successor_sid1 = len(core_tuple_to_sid_hash)
