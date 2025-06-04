@@ -197,7 +197,7 @@ class Item1(ItemBase):
     # -------------------- 项目的基本属性 --------------------
     item0: Item0 = dataclasses.field(kw_only=True, hash=False, compare=True)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 展望符（终结符）
-    successor_item: Optional["Item1"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
+    successor_item: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 指向后继 LR(1) 项目的指针
 
     @staticmethod
     def create_by_item0(i1_id: int, item0: Item0, lookahead: int, successor_item1: Optional["Item1"]) -> "Item1":
@@ -540,7 +540,7 @@ class ParserLALR1(ParserBase):
             return self.item1_core_to_i1_id_hash[(item0.id, lookahead)]
 
         if item0.successor_item is not None:
-            successor_item1 = self.i1_id_to_item1_hash[self._create_item1(item0.successor_item, lookahead)]
+            successor_item1 = self._create_item1(item0.successor_item, lookahead)
         else:
             successor_item1 = None
 
@@ -664,8 +664,7 @@ class ParserLALR1(ParserBase):
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
             for successor_symbol, sub_item1_set in successor_group.items():
-                successor_item1_core_tuple: Tuple[Item1, ...] = tuple(sorted(set(sub_item1_set), key=lambda x: x.id))
-                successor_core_tuple = tuple(item1.id for item1 in successor_item1_core_tuple)
+                successor_core_tuple: Tuple[int, ...] = tuple(sorted(set(sub_item1_set)))
                 if successor_core_tuple not in core_tuple_to_sid_hash:
                     successor_sid1 = len(core_tuple_to_sid_hash)
                     core_tuple_to_sid_hash[successor_core_tuple] = successor_sid1
