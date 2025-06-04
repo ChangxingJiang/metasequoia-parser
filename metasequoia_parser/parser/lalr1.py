@@ -16,10 +16,6 @@ from metasequoia_parser.common import Item1Set
 from metasequoia_parser.common import ItemCentric
 from metasequoia_parser.common import ItemType
 from metasequoia_parser.common import ParserBase
-from metasequoia_parser.functions import cal_init_item_from_item_list
-from metasequoia_parser.functions import cal_symbol_to_start_item_list_hash
-from metasequoia_parser.functions.cal_nonterminal_all_start_terminal import cal_nonterminal_all_start_terminal
-from metasequoia_parser.functions.table_full_error import table_full_error
 from metasequoia_parser.utils import LOGGER
 
 # 接受（ACCEPT）类型或规约（REDUCE）类型的集合
@@ -57,20 +53,20 @@ class ParserLALR1(ParserBase):
 
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
-        self.symbol_to_start_item_list_hash = cal_symbol_to_start_item_list_hash(self.i0_id_to_item0_hash)
+        self.symbol_to_start_item_list_hash = self.cal_symbol_to_start_item_list_hash()
         LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
                     f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
 
         # 从项目列表中获取入口项目
         LOGGER.info("[3 / 10] 从项目列表中获取入口项目开始")
-        self.init_item0 = cal_init_item_from_item_list(self.i0_id_to_item0_hash)
+        self.init_item0 = self.cal_init_item_from_item_list()
         LOGGER.info("[3 / 10] 从项目列表中获取入口项目结束")
 
         # 计算所有非终结符名称的列表
         nonterminal_name_list = list({item0.nonterminal_id for item0 in self.i0_id_to_item0_hash})
 
         # 计算每个非终结符中，所有可能的开头终结符
-        self.nonterminal_all_start_terminal = cal_nonterminal_all_start_terminal(self.grammar, nonterminal_name_list)
+        self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_name_list)
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
@@ -240,6 +236,75 @@ class ParserLALR1(ParserBase):
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
             ))
+
+    def cal_symbol_to_start_item_list_hash(self) -> Dict[int, List[Item0]]:
+        """根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
+        Returns
+        -------
+        Dict[int, List[T]]
+            键为非终结符名称，值为非终结符对应项目的列表（泛型 T 为 ItemBase 的子类）
+        """
+        symbol_to_start_item_list_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
+        for item in self.i0_id_to_item0_hash:
+            if len(item.get_before_handle()) == 0:
+                symbol_to_start_item_list_hash[item.get_symbol_id()].append(item)
+        return symbol_to_start_item_list_hash
+
+    def cal_init_item_from_item_list(self) -> Item0:
+        """从项目列表中获取入口项目"""
+        for item0 in self.i0_id_to_item0_hash:
+            if item0.is_init():
+                return item0
+        raise KeyError("未从项目列表中获取到 INIT 项目")
+
+    def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
+        """计算每个非终结符中，所有可能的开头终结符
+
+        Parameters
+        ----------
+        nonterminal_name_list : List[int]
+            所有非终结符名称的列表
+
+        Returns
+        -------
+        Dict[int, Set[int]]
+            每个非终结标识符到其所有可能的开头终结符集合的映射
+        """
+        # 计算每个非终结符在各个生成式中的开头终结符和开头非终结符
+        nonterminal_start_terminal = collections.defaultdict(set)  # "非终结符名称" 到其 "开头终结符的列表" 的映射
+        nonterminal_start_nonterminal = collections.defaultdict(set)  # "非终结符名称" 到其 "开头非终结符的列表" 的映射
+        for product in self.grammar.get_product_list():
+            for symbol in product.symbol_id_list:
+                if self.grammar.is_terminal(symbol):
+                    reduce_name = product.nonterminal_id
+                    nonterminal_start_terminal[reduce_name].add(symbol)
+                else:
+                    reduce_name = product.nonterminal_id
+                    nonterminal_start_nonterminal[reduce_name].add(symbol)
+
+                # 如果当前符号为终结符，或为不允许匹配 %empty 的非终结符，则说明后续符号已不可能再包含开头字符
+                if not self.grammar.is_maybe_empty(symbol):
+                    break
+
+        # 计算每个终结符直接或经过其他非终结符间接的开头终结符的列表
+        nonterminal_all_start_terminal = collections.defaultdict(set)  # “非终结符名称” 到其 “直接或经由其他非终结符间接的开头终结符的列表” 的映射
+        for nonterminal_name in nonterminal_name_list:
+            # 广度优先搜索添加当前非终结符经由其他非终结符间接时间的开头终结符
+            visited = {nonterminal_name}
+            queue = collections.deque([nonterminal_name])
+            while queue:
+                now_nonterminal_name = queue.popleft()
+
+                # 添加当前非终结符直接使用的开头终结符
+                nonterminal_all_start_terminal[nonterminal_name] |= nonterminal_start_terminal[now_nonterminal_name]
+
+                # 将当前非终结符使用的非终结符添加到队列
+                for next_nonterminal_name in nonterminal_start_nonterminal[now_nonterminal_name]:
+                    if next_nonterminal_name not in visited:
+                        queue.append(next_nonterminal_name)
+                        visited.add(next_nonterminal_name)
+
+        return nonterminal_all_start_terminal
 
     def bfs_search_item1_set(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
@@ -518,7 +583,7 @@ class ParserLALR1(ParserBase):
         """
         # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
         n_status = len(self.sid_set)
-        table: List[List[Optional[Callable]]] = [[None] * self.grammar.n_symbol for _ in range(n_status)]
+        table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
 
         position_shift_hash = {}  # ACTION + GOTO 表位置到移进操作列表的哈希映射（每个位置至多有一个 Shift 行为）
         position_reduce_list_hash = collections.defaultdict(list)  # ACTION + GOTO 表位置到规约操作列表的哈希映射（每个位置可以有多个 Reduce 行为）
@@ -606,8 +671,5 @@ class ParserLALR1(ParserBase):
 
         # 当接受项目集闭包接收到结束符时，填充 Accept 行为
         table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
-
-        # 将 ACTION 表和 GOTO 表中所有没有填充的位置全部置为 ERROR 行为（原地更新）
-        table_full_error(table=table)
 
         return table
