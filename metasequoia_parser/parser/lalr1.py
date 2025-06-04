@@ -103,9 +103,6 @@ class ParserLALR1(ParserBase):
 
         # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
-        self.core_tuple_to_status_hash = {core_tuple: i
-                                          for i, core_tuple in
-                                          enumerate(sorted(self.core_tuple_to_item1_set_hash, key=repr))}
         self.sid_to_status_hash = {
             sid: i
             for i, sid in enumerate(sorted(self.sid_set, key=lambda x: repr(self.sid_to_core_tuple_hash[x])))
