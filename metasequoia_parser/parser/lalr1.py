@@ -78,11 +78,10 @@ class ParserLALR1(ParserBase):
         self.core_tuple_to_sid_hash = {}  # 核心项目到 SID1 的映射
         self.sid_to_core_tuple_hash = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash = []  # SID1 到 LR(1) 项目集的映射
-        self.core_tuple_to_item1_set_hash: Dict[Tuple[Item1, ...], Item1Set] = {}  # 核心项目到 LR(1) 项目集的映射
         self.cal_core_to_item1_set_hash()
         self.sid_set = set(range(len(self.sid_to_core_tuple_hash)))  # 有效 SID1 的集合
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
-                    f"(关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
+                    f"(搜索后 LR(1) 项目集数量 = {len(self.sid_set)})")
 
         # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
         LOGGER.info("[5 / 10] 计算项目集核心开始")
@@ -94,7 +93,7 @@ class ParserLALR1(ParserBase):
         self.core_tuple_hash = {}
         self.merge_same_concentric_item1_set()
         LOGGER.info("[6 / 10] 合并项目集核心相同的项目集结束 "
-                    f"(合并后关系映射数量 = {len(self.core_tuple_to_item1_set_hash)})")
+                    f"(合并后 LR(1) 项目集数量 = {len(self.sid_set)})")
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
@@ -183,7 +182,6 @@ class ParserLALR1(ParserBase):
                 core_list=core_tuple,
                 other_item1_set=other_item1_set
             )
-            self.core_tuple_to_item1_set_hash[core_tuple] = item1_set
             self.sid_to_item1_set_hash.append(item1_set)
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
@@ -351,7 +349,10 @@ class ParserLALR1(ParserBase):
             根据项目集核心聚合后的项目集
         """
         concentric_hash = collections.defaultdict(list)
-        for core_tuple, item1_set in self.core_tuple_to_item1_set_hash.items():
+        for sid in self.sid_set:
+            core_tuple = self.sid_to_core_tuple_hash[sid]
+            item1_set = self.sid_to_item1_set_hash[sid]
+
             # 计算项目集核心（先去重，再排序）
             centric_list: List[ItemCentric] = list(set(core_item1.get_centric() for core_item1 in core_tuple))
             centric_list.sort(key=lambda x: (x.reduce_name, x.before_handle, x.after_handle))
@@ -403,11 +404,6 @@ class ParserLALR1(ParserBase):
                 if item1_set.sid in self.sid_set:
                     self.sid_set.remove(item1_set.sid)
             self.sid_set.add(new_sid1)
-
-            # 从核心项目到项目集闭包的映射中移除旧项目集，添加新项目集
-            for item1_set in item1_set_list:
-                self.core_tuple_to_item1_set_hash.pop(item1_set.core_tuple)
-            self.core_tuple_to_item1_set_hash[new_item1_set.core_tuple] = new_item1_set
 
     def create_item1_set_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
