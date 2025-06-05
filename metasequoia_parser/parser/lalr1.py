@@ -246,8 +246,12 @@ class ParserLALR1(ParserBase):
         self.sid_to_core_tuple_hash: List[Tuple[int, ...]] = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash: List[Item1Set] = []  # SID1 到 LR(1) 项目集的映射
 
-        self.i1_id_to_item1_hash: List[Item1] = []  # LR(1) 项目 ID 到 LR(1) 项目对象的映射
-        self.i1_id_to_i0_id_hash: List[int] = []  # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
+        # LR(1) 项目 ID 到 LR(1) 项目对象的映射
+        self.i1_id_to_item1_hash: List[Item1] = []
+        # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
+        self.i1_id_to_i0_id_hash: List[int] = []
+        # LR(1) 项目 ID 到 “指向的 LR(0) 项目中句柄之后的符号列表的唯一 ID” 及 LR(1) 项目展望符的映射
+        self.i1_id_to_ah_id_and_lookahead_hash: List[Tuple[int, int]] = []
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
         # self._dfs_visited = set()
@@ -479,6 +483,7 @@ class ParserLALR1(ParserBase):
         self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
         self.i1_id_to_item1_hash.append(item1)
         self.i1_id_to_i0_id_hash.append(item0.i0_id)
+        self.i1_id_to_ah_id_and_lookahead_hash.append((item0.ah_id, lookahead))
         return i1_id
 
     def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
@@ -639,16 +644,15 @@ class ParserLALR1(ParserBase):
         visited_symbol_set = set()
         queue = collections.deque()
         for i1_id in core_tuple:
-            item1 = self.i1_id_to_item1_hash[i1_id]
-            ah_id = item1.item0.ah_id
+            ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
 
             # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
             if not ah_id:
                 continue
 
             # 将句柄之后的符号列表 + 展望符添加到队列中
-            visited_symbol_set.add((ah_id, item1.lookahead))
-            queue.append((ah_id, item1.lookahead))
+            visited_symbol_set.add((ah_id, lookahead))
+            queue.append((ah_id, lookahead))
 
         # 广度优先搜索所有的等价项目组
         while queue:
@@ -666,12 +670,10 @@ class ParserLALR1(ParserBase):
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             for i1_id in diff_set:
-                sub_item1 = self.i1_id_to_item1_hash[i1_id]
-                ah_id = sub_item1.item0.ah_id
+                ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
                 if not ah_id:
                     continue  # 跳过匹配 %empty 的项目
 
-                lookahead = sub_item1.lookahead
                 if (ah_id, lookahead) not in visited_symbol_set:
                     visited_symbol_set.add((ah_id, lookahead))
                     queue.append((ah_id, lookahead))
@@ -685,14 +687,13 @@ class ParserLALR1(ParserBase):
         i1_id_set: Set[int] = set()
 
         for i1_id in core_tuple:
-            item1 = self.i1_id_to_item1_hash[i1_id]
-            ah_id = item1.item0.ah_id
+            ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
 
             # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
             if not ah_id:
                 continue
 
-            i1_id_set |= self.compute_all_level_lr1_closure(ah_id, item1.lookahead)
+            i1_id_set |= self.compute_all_level_lr1_closure(ah_id, lookahead)
 
         return i1_id_set
 
@@ -708,10 +709,9 @@ class ParserLALR1(ParserBase):
         # 将等价项目组中需要继续寻找等价项目的添加到队列
         self._dfs_visited.add(ah_id)
         for i1_id in list(i1_id_set):
-            sub_item1 = self.i1_id_to_item1_hash[i1_id]
-            sub_ah_id = sub_item1.item0.ah_id
+            sub_ah_id, sub_lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
             if sub_ah_id and sub_ah_id not in self._dfs_visited:
-                i1_id_set |= self.compute_all_level_lr1_closure(sub_ah_id, sub_item1.lookahead)
+                i1_id_set |= self.compute_all_level_lr1_closure(sub_ah_id, sub_lookahead)
         self._dfs_visited.remove(ah_id)
 
         return i1_id_set
