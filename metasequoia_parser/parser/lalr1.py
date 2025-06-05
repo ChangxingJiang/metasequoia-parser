@@ -8,8 +8,7 @@ import collections
 import dataclasses
 import enum
 from functools import lru_cache
-from typing import Callable, List, Optional, Tuple
-from typing import Dict, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from metasequoia_parser.common import ActionAccept, ActionError, ActionGoto, ActionReduce, ActionShift
 from metasequoia_parser.common import CombineType
@@ -71,7 +70,7 @@ class Item0(ItemBase):
     # -------------------- 性能设计 --------------------
     # Item0 项目集唯一 ID
     # 通过在构造时添加 Item0 项目集的唯一 ID，从而将 Item0 项目集的哈希计算优化为直接获取唯一 ID
-    id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
+    i0_id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
     # -------------------- 项目的基本信息（节点属性）--------------------
     nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
@@ -89,68 +88,6 @@ class Item0(ItemBase):
     sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
     sr_combine_type: CombineType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 合并顺序
     rr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 RR 优先级序号（越大越优先）
-
-    @staticmethod
-    def create(i0_id: int,
-               reduce_name: int,
-               before_handle: List[int],
-               after_handle: List[int],
-               action: Callable,
-               item_type: ItemType,
-               successor_symbol: Optional[int],
-               successor_item: Optional["Item0"],
-               sr_priority_idx: int,
-               sr_combine_type: CombineType,
-               rr_priority_idx: int
-               ) -> "Item0":
-        # pylint: disable=W0221
-        # pylint: disable=R0913
-        """项目对象的构造方法
-
-        Parameters
-        ----------
-        i0_id : int
-            唯一 ID
-        reduce_name : int
-            规约的非终结符名称（即所在语义组名称）
-        before_handle : List[str]
-            在句柄之前的符号名称的列表
-        after_handle : List[str]
-            在句柄之后的符号名称的列表
-        item_type : ItemType
-            项目类型
-        action : Callable
-            项目的规约行为函数
-        successor_symbol : Optional[str]
-            能够连接到后继项目的符号名称
-        successor_item : Optional[Item0]
-            连接到的后继项目对象
-        sr_priority_idx : int
-            生成式的 SR 优先级序号（越大越优先）
-        sr_combine_type : CombineType
-            生成式的 SR 合并顺序
-        rr_priority_idx : int = dataclasses.field(kw_only=True)
-            生成式的 RR 优先级序号（越大越优先）
-
-        Returns
-        -------
-        Item0
-            构造的 Item0 文法项目对象
-        """
-        # 【性能设计】提前计算项目集核心对象的返回值
-        return Item0(
-            id=i0_id,
-            nonterminal_id=reduce_name,
-            before_handle=tuple(before_handle),
-            after_handle=tuple(after_handle),
-            action=action,
-            item_type=item_type,
-            successor_symbol=successor_symbol,
-            successor_item=successor_item,
-            sr_priority_idx=sr_priority_idx,
-            sr_combine_type=sr_combine_type,
-            rr_priority_idx=rr_priority_idx,
-        )
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
@@ -255,7 +192,6 @@ class Item1Set:
     sid: int = dataclasses.field(kw_only=True)
     core_tuple: Tuple[int, ...] = dataclasses.field(kw_only=True)  # 核心项目
     other_item1_set: Set[int] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
-    successor_hash: Dict[int, "Item1Set"] = dataclasses.field(kw_only=True, default_factory=lambda: {})  # 后继项目的关联关系
 
     @staticmethod
     def create(sid: int, core_list: Tuple[int, ...], other_item1_set: Set[int]) -> "Item1Set":
@@ -265,18 +201,6 @@ class Item1Set:
             core_tuple=core_list,
             other_item1_set=other_item1_set
         )
-
-    def set_successor(self, symbol: int, successor: "Item1Set"):
-        """设置 symbol 对应的后继项目"""
-        self.successor_hash[symbol] = successor
-
-    def has_successor(self, symbol: int) -> bool:
-        """如果存在 symbol 对应的后继项目则返回 True，否则返回 False"""
-        return symbol in self.successor_hash
-
-    def get_successor(self, symbol: int) -> "Item1Set":
-        """获取 symbol 对象的后继项目"""
-        return self.successor_hash[symbol]
 
     def __repr__(self):
         core_tuple_str = "|".join(str(item) for item in self.core_tuple)
@@ -304,6 +228,9 @@ class ParserLALR1(ParserBase):
         self.grammar = grammar
         self.debug = debug
 
+        # 缓存器
+        self._dfs_visited = set()
+
         # 【调试模式】cProfile 性能分析
         self.profiler = None
         if self.profile:
@@ -322,6 +249,8 @@ class ParserLALR1(ParserBase):
 
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
+        self.after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = {}  # 句柄之后的符号列表到唯一 ID 的映射
+        self.ah_id_to_after_handle_hash: List[Tuple[int, ...]] = []  # 唯一 ID 到句柄之后的符号列表的映射
         self.cal_all_item0_list()
         LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.i0_id_to_item0_hash)})")
 
@@ -446,11 +375,11 @@ class ParserLALR1(ParserBase):
             # 如果为 %empty，则仅构造一个规约项目
             if len(product.symbol_id_list) == 0:
                 i0_id = len(i0_id_to_item0_hash)
-                i0_id_to_item0_hash.append(Item0.create(
+                i0_id_to_item0_hash.append(Item0(
                     i0_id=i0_id,
-                    reduce_name=product.nonterminal_id,
-                    before_handle=[],
-                    after_handle=[],
+                    nonterminal_id=product.nonterminal_id,
+                    before_handle=tuple(),
+                    after_handle=tuple(),
                     action=product.action,
                     item_type=last_item_type,
                     successor_symbol=None,  # 规约项目不存在后继项目
@@ -463,11 +392,11 @@ class ParserLALR1(ParserBase):
 
             # 添加句柄在结束位置（最右侧）的项目（规约项目）
             i0_id = len(i0_id_to_item0_hash)
-            last_item = Item0.create(
+            last_item = Item0(
                 i0_id=i0_id,
-                reduce_name=product.nonterminal_id,
-                before_handle=product.symbol_id_list,
-                after_handle=[],
+                nonterminal_id=product.nonterminal_id,
+                before_handle=tuple(product.symbol_id_list),
+                after_handle=tuple(),
                 action=product.action,
                 item_type=last_item_type,
                 successor_symbol=None,  # 规约项目不存在后继项目
@@ -481,11 +410,11 @@ class ParserLALR1(ParserBase):
             # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
             for i in range(len(product.symbol_id_list) - 1, 0, -1):
                 i0_id = len(i0_id_to_item0_hash)
-                now_item = Item0.create(
+                now_item = Item0(
                     i0_id=i0_id,
-                    reduce_name=product.nonterminal_id,
-                    before_handle=product.symbol_id_list[:i],
-                    after_handle=product.symbol_id_list[i:],
+                    nonterminal_id=product.nonterminal_id,
+                    before_handle=tuple(product.symbol_id_list[:i]),
+                    after_handle=tuple(product.symbol_id_list[i:]),
                     action=product.action,
                     item_type=ItemType.SHIFT,
                     successor_symbol=product.symbol_id_list[i],
@@ -499,11 +428,11 @@ class ParserLALR1(ParserBase):
 
             # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
             i0_id = len(i0_id_to_item0_hash)
-            i0_id_to_item0_hash.append(Item0.create(
+            i0_id_to_item0_hash.append(Item0(
                 i0_id=i0_id,
-                reduce_name=product.nonterminal_id,
-                before_handle=[],
-                after_handle=product.symbol_id_list,
+                nonterminal_id=product.nonterminal_id,
+                before_handle=tuple(),
+                after_handle=tuple(product.symbol_id_list),
                 action=product.action,
                 item_type=first_item_type,
                 successor_symbol=product.symbol_id_list[0],
@@ -536,8 +465,8 @@ class ParserLALR1(ParserBase):
     def _create_item1(self, item0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
         # 如果 item1 已经存在则返回已存在 item1
-        if (item0.id, lookahead) in self.item1_core_to_i1_id_hash:
-            return self.item1_core_to_i1_id_hash[(item0.id, lookahead)]
+        if (item0.i0_id, lookahead) in self.item1_core_to_i1_id_hash:
+            return self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)]
 
         if item0.successor_item is not None:
             successor_item1 = self._create_item1(item0.successor_item, lookahead)
@@ -551,7 +480,7 @@ class ParserLALR1(ParserBase):
             lookahead=lookahead,
             successor_item1=successor_item1
         )
-        self.item1_core_to_i1_id_hash[(item0.id, lookahead)] = i1_id
+        self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
         self.i1_id_to_item1_hash.append(item1)
         return i1_id
 
@@ -639,6 +568,9 @@ class ParserLALR1(ParserBase):
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
             other_item1_set = self.bfs_closure_item1(core_tuple)
+            # other_item1_set = set()
+            # for i1_id in core_tuple:
+            #     other_item1_set |= self.dfs_closure_item1(i1_id)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
@@ -683,9 +615,7 @@ class ParserLALR1(ParserBase):
                     queue.append(successor_sid1)
                     visited.add(successor_sid1)
 
-    def bfs_closure_item1(self,
-                          core_tuple: Tuple[int]
-                          ) -> Set[int]:
+    def bfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
         # pylint: disable=R0912
         # pylint: disable=R0914
         """广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
@@ -753,22 +683,29 @@ class ParserLALR1(ParserBase):
 
         return item_set
 
-    # @lru_cache(maxsize=None)
-    # def dfs_closure_item1(self, item1: Item1) -> Set[Item1]:
-    #     """广度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
-    #     after_handle = item1.item0.after_handle
-    #     if not after_handle:
-    #         return set()
-    #
-    #     # 计算单层的等价 LR(1) 项目
-    #     item1_set = self.compute_single_level_lr1_closure(
-    #         after_handle=after_handle,
-    #         lookahead=item1.lookahead
-    #     )
-    #     for sub_item1 in list(item1_set):
-    #         if item1 != sub_item1:
-    #             item1_set |= self.dfs_closure_item1(sub_item1)
-    #     return item1_set
+    @lru_cache(maxsize=None)
+    def dfs_closure_item1(self, i1_id: int) -> Set[int]:
+        """广度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
+        item1 = self.i1_id_to_item1_hash[i1_id]
+        print("DFS:", i1_id, item1)
+        after_handle = item1.item0.after_handle
+        if not after_handle:
+            return set()
+
+        self._dfs_visited.add(i1_id)
+
+        # 计算单层的等价 LR(1) 项目
+        item1_set = self.compute_single_level_lr1_closure(
+            after_handle=after_handle,
+            lookahead=item1.lookahead
+        )
+        for sub_i1_id in list(item1_set):
+            if sub_i1_id not in self._dfs_visited:
+                item1_set |= self.dfs_closure_item1(sub_i1_id)
+
+        self._dfs_visited.remove(i1_id)
+
+        return item1_set
 
     @lru_cache(maxsize=None)
     def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[int]:
@@ -847,7 +784,7 @@ class ParserLALR1(ParserBase):
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
             item1_set = sid_to_item1_set_hash[sid]
-            centric_tuple = tuple(sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.id for i1_id in core_tuple))))
+            centric_tuple = tuple(sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple))))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(item1_set)
         return concentric_hash
