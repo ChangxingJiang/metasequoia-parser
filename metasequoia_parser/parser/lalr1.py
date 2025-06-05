@@ -124,43 +124,19 @@ class Item1(ItemBase):
 
     Attributes
     ----------
-    successor_item : Optional[Item0]
+    successor_i1_id : Optional[Item0]
         连接到的后继项目对象
     """
 
     # -------------------- 性能设计 --------------------
     # 【性能设计】Item1 项目集唯一 ID
     # 通过在构造时添加 Item1 项目集的唯一 ID，从而将 Item1 项目集的哈希计算优化为直接获取唯一 ID
-    id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
+    i1_id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
     # -------------------- 项目的基本属性 --------------------
     item0: Item0 = dataclasses.field(kw_only=True, hash=False, compare=True)  # 连接到的后继项目对象
     lookahead: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 展望符（终结符）
-    successor_item: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 指向后继 LR(1) 项目的指针
-
-    @staticmethod
-    def create_by_item0(i1_id: int, item0: Item0, lookahead: int, successor_item1: Optional["Item1"]) -> "Item1":
-        """采用享元模式，通过 Item0 对象和 lookahead 构造 Item1 对象
-
-        Parameters
-        ----------
-        item0 : Item0
-            构造的 Item0 文法项目对象
-        lookahead : int
-            展望符
-
-        Returns
-        -------
-        Item1
-            构造的 Item1 文法项目对象
-        """
-        item1 = Item1(
-            id=i1_id,
-            item0=item0,
-            successor_item=successor_item1,
-            lookahead=lookahead,
-        )
-        return item1
+    successor_i1_id: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 后继 LR(1) 项目的 ID
 
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
@@ -500,11 +476,11 @@ class ParserLALR1(ParserBase):
             successor_item1 = None
 
         i1_id = len(self.i1_id_to_item1_hash)
-        item1 = Item1.create_by_item0(
+        item1 = Item1(
             i1_id=i1_id,
             item0=item0,
             lookahead=lookahead,
-            successor_item1=successor_item1
+            successor_i1_id=successor_item1
         )
         self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
         self.i1_id_to_item1_hash.append(item1)
@@ -610,12 +586,12 @@ class ParserLALR1(ParserBase):
                 item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
-                    successor_group[successor_symbol].append(item1.successor_item)
+                    successor_group[successor_symbol].append(item1.successor_i1_id)
             for i1_id in other_item1_set:
                 item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
-                    successor_group[successor_symbol].append(item1.successor_item)
+                    successor_group[successor_symbol].append(item1.successor_i1_id)
 
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
