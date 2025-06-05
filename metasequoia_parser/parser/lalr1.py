@@ -765,16 +765,11 @@ class ParserLALR1(ParserBase):
                 new_other_item_set |= item1_set.other_item1_set
 
             # 通过排序逻辑以保证结果状态是稳定的
-            new_core_item_list = list(new_core_item_set)
-            new_core_item_list.sort(key=lambda x: self.i1_id_to_item1_hash[x])
-            new_core_tuple = tuple(new_core_item_list)
+            new_core_tuple = tuple(sorted(new_core_item_set))
 
-            if new_core_tuple not in self.core_tuple_to_sid_hash:
-                new_sid1 = len(self.core_tuple_to_sid_hash)
-                core_tuple_to_sid_hash[new_core_tuple] = new_sid1
-                sid_to_core_tuple_hash.append(new_core_tuple)
-            else:
-                new_sid1 = core_tuple_to_sid_hash[new_core_tuple]
+            new_sid1 = len(self.sid_to_item1_set_hash)
+            core_tuple_to_sid_hash[new_core_tuple] = new_sid1
+            sid_to_core_tuple_hash.append(new_core_tuple)
 
             new_item1_set = Item1Set.create(
                 sid=new_sid1,
