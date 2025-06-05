@@ -257,6 +257,7 @@ class ParserLALR1(ParserBase):
         self.sid_to_item1_set_hash: List[Item1Set] = []  # SID1 到 LR(1) 项目集的映射
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
+        self._dfs_visited = set()
         self.bfs_search_item1_set()
 
         self.sid_set = set(range(len(self.sid_to_core_tuple_hash)))  # 有效 SID1 的集合
@@ -466,6 +467,7 @@ class ParserLALR1(ParserBase):
 
     def _create_item1(self, item0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
+
         # 如果 item1 已经存在则返回已存在 item1
         if (item0.i0_id, lookahead) in self.item1_core_to_i1_id_hash:
             return self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)]
@@ -687,7 +689,7 @@ class ParserLALR1(ParserBase):
         """深度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
 
         # 初始化项目集闭包中包含的其他项目列表
-        item_set: Set[int] = set()
+        i1_id_set: Set[int] = set()
 
         for i1_id in core_tuple:
             item1 = self.i1_id_to_item1_hash[i1_id]
@@ -697,14 +699,13 @@ class ParserLALR1(ParserBase):
             if not ah_id:
                 continue
 
-            item_set |= self.compute_all_level_lr1_closure(ah_id, item1.lookahead)
+            i1_id_set |= self.compute_all_level_lr1_closure(ah_id, item1.lookahead)
 
-        return item_set
+        return i1_id_set
 
     @lru_cache(maxsize=None)
     def compute_all_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
         """深度优先搜索，记忆化搜索，计算 item1 所有的等价 LR(1) 项目的 ID 的集合"""
-
         # 计算单层的等价 LR(1) 项目
         i1_id_set = self.compute_single_level_lr1_closure(
             ah_id=ah_id,
@@ -712,11 +713,13 @@ class ParserLALR1(ParserBase):
         )
 
         # 将等价项目组中需要继续寻找等价项目的添加到队列
+        self._dfs_visited.add(ah_id)
         for i1_id in list(i1_id_set):
             sub_item1 = self.i1_id_to_item1_hash[i1_id]
             sub_ah_id = sub_item1.item0.ah_id
-            if sub_ah_id and sub_ah_id != ah_id:
+            if sub_ah_id and sub_ah_id not in self._dfs_visited:
                 i1_id_set |= self.compute_all_level_lr1_closure(sub_ah_id, sub_item1.lookahead)
+        self._dfs_visited.remove(ah_id)
 
         return i1_id_set
 
