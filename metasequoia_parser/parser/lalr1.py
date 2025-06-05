@@ -290,16 +290,6 @@ class ParserLALR1(ParserBase):
 
         # 构造 ACTION 表 + GOTO 表
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
-        # 计算接受 LR(1) 项目集对应的状态 ID
-        self.accept_s1_id = None
-        for s1_id, core_tuple in enumerate(self.sid_to_core_tuple_hash):
-            for i1_id in core_tuple:
-                item1 = self.i1_id_to_item1_hash[i1_id]
-                if item1.item0.is_accept():
-                    self.accept_s1_id = s1_id
-                    break
-        self.accept_status_id = self.sid_to_status_hash[self.accept_s1_id]
-
         self.table = self.create_lr_parsing_table_use_lalr1()
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
 
