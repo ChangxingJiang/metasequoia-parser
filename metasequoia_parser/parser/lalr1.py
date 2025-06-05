@@ -798,8 +798,7 @@ class ParserLALR1(ParserBase):
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
             item1_set = sid_to_item1_set_hash[sid]
-            centric_tuple = tuple(
-                sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple))))
+            centric_tuple = tuple(sorted(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple)))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(item1_set)
         return concentric_hash
