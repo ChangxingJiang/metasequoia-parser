@@ -49,10 +49,6 @@ class ItemBase(abc.ABC):
         """获取句柄之后的符号名称的列表"""
 
     @abc.abstractmethod
-    def is_init(self) -> bool:
-        """是否为入口项目"""
-
-    @abc.abstractmethod
     def is_accept(self) -> bool:
         """是否为接受项目"""
 
@@ -154,10 +150,6 @@ class Item1(ItemBase):
         """获取句柄之后的符号名称的列表"""
         return self.item0.ah_id
 
-    def is_init(self) -> bool:
-        """是否为入口项目"""
-        return self.item0.item_type == ItemType.INIT
-
     def is_accept(self) -> bool:
         """是否为接收项目"""
         return self.item0.item_type == ItemType.ACCEPT
@@ -238,10 +230,11 @@ class ParserLALR1(ParserBase):
         LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
                     f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
 
-        # 从项目列表中获取入口项目
-        LOGGER.info("[3 / 10] 从项目列表中获取入口项目开始")
-        self.init_item0 = self.cal_init_item_from_item_list()
-        LOGGER.info("[3 / 10] 从项目列表中获取入口项目结束")
+        # 获取入口、接受 LR(0) 项目 ID
+        LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 开始")
+        self.init_i0_id = self.get_init_i0_id()
+        self.accept_i0_id = self.get_accept_i0_id()
+        LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
 
         # 计算所有非终结符名称的列表
         nonterminal_name_list = list({item0.nonterminal_id for item0 in self.i0_id_to_item0_hash})
@@ -258,6 +251,7 @@ class ParserLALR1(ParserBase):
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
         self._dfs_visited = set()
+        self.init_i1_id: Optional[int] = None
         self.bfs_search_item1_set()
 
         self.sid_set = set(range(len(self.sid_to_core_tuple_hash)))  # 有效 SID1 的集合
@@ -288,10 +282,11 @@ class ParserLALR1(ParserBase):
         LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
 
         # 计算入口 LR(1) 项目集对应的状态 ID
-        LOGGER.info("[9 / 10] 生成初始状态开始")
-        self.init_item1 = self._create_item1(self.init_item0, self.grammar.end_terminal)
-        self.entrance_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_item1,)]]
-        LOGGER.info("[9 / 10] 生成初始状态结束")
+        LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
+        accept_i1_id = self.item1_core_to_i1_id_hash[(self.accept_i0_id, self.grammar.end_terminal)]
+        self.init_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_i1_id,)]]
+        self.accept_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(accept_i1_id,)]]
+        LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
 
         # 构造 ACTION 表 + GOTO 表
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
@@ -328,7 +323,7 @@ class ParserLALR1(ParserBase):
 
         pylint: disable=R0801 -- 未提高相似算法的代码可读性，允许不同算法之间存在少量相同代码
         """
-        return self.table, self.entrance_status_id
+        return self.table, self.init_status_id
 
     def cal_all_item0_list(self) -> None:
         """根据文法对象 Grammar 计算出所有项目（Item0 对象）的列表，并生成项目之间的后继关系
@@ -458,12 +453,19 @@ class ParserLALR1(ParserBase):
                 symbol_to_start_item_list_hash[item.get_symbol_id()].append(item)
         return symbol_to_start_item_list_hash
 
-    def cal_init_item_from_item_list(self) -> Item0:
-        """从项目列表中获取入口项目"""
+    def get_init_i0_id(self) -> int:
+        """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
         for item0 in self.i0_id_to_item0_hash:
             if item0.is_init():
-                return item0
+                return item0.i0_id
         raise KeyError("未从项目列表中获取到 INIT 项目")
+
+    def get_accept_i0_id(self) -> int:
+        """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
+        for item0 in self.i0_id_to_item0_hash:
+            if item0.is_accept():
+                return item0.i0_id
+        raise KeyError("未从项目列表中获取到 ACCEPT 项目")
 
     def _create_item1(self, item0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
@@ -550,8 +552,8 @@ class ParserLALR1(ParserBase):
         item1_set_relation: List[Tuple[int, int, int]] = self.item1_set_relation
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        init_i1_id = self._create_item1(self.init_item0, self.grammar.end_terminal)
-        init_core_tuple = (init_i1_id,)
+        self.init_i1_id = self._create_item1(self.i0_id_to_item0_hash[self.init_i0_id], self.grammar.end_terminal)
+        init_core_tuple = (self.init_i1_id,)
         core_tuple_to_sid_hash[init_core_tuple] = 0
         sid_to_core_tuple_hash.append(init_core_tuple)
 
