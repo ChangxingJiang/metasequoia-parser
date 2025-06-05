@@ -214,9 +214,6 @@ class ParserLALR1(ParserBase):
         # - LR(1) 项目核心元组包括指向的 LR(0) 项目 ID 和展望符
         self.item1_core_to_i1_id_hash: Dict[Tuple[int, int], int] = {}
 
-        # LR(1) 项目 ID 到 LR(1) 项目对象的映射
-        self.i1_id_to_item1_hash: List[Item1] = []
-
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
         self.after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = {}  # 句柄之后的符号列表到唯一 ID 的映射
@@ -249,8 +246,11 @@ class ParserLALR1(ParserBase):
         self.sid_to_core_tuple_hash: List[Tuple[int, ...]] = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash: List[Item1Set] = []  # SID1 到 LR(1) 项目集的映射
 
+        self.i1_id_to_item1_hash: List[Item1] = []  # LR(1) 项目 ID 到 LR(1) 项目对象的映射
+        self.i1_id_to_i0_id_hash: List[int] = []  # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
+
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
-        self._dfs_visited = set()
+        # self._dfs_visited = set()
         self.init_i1_id: Optional[int] = None
         self.bfs_search_item1_set()
 
@@ -478,6 +478,7 @@ class ParserLALR1(ParserBase):
         )
         self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
         self.i1_id_to_item1_hash.append(item1)
+        self.i1_id_to_i0_id_hash.append(item0.i0_id)
         return i1_id
 
     def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
@@ -675,9 +676,6 @@ class ParserLALR1(ParserBase):
                     visited_symbol_set.add((ah_id, lookahead))
                     queue.append((ah_id, lookahead))
 
-        # print("core_tuple:", [self.i1_id_to_item1_hash[i1_id] for i1_id in core_tuple])
-        # print(len(i1_id_set), ":", [self.i1_id_to_item1_hash[i1_id] for i1_id in i1_id_set])
-
         return i1_id_set
 
     def dfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
@@ -796,7 +794,7 @@ class ParserLALR1(ParserBase):
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
             item1_set = sid_to_item1_set_hash[sid]
-            centric_tuple = tuple(sorted(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple)))
+            centric_tuple = tuple(sorted(set(self.i1_id_to_i0_id_hash[i1_id] for i1_id in core_tuple)))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(item1_set)
         return concentric_hash
