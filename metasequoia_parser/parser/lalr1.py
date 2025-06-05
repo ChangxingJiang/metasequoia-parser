@@ -76,7 +76,8 @@ class Item0(ItemBase):
     nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
     before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之前的符号名称的列表
     ah_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之后的符号名称的列表的 ID
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 句柄之后符号名称的列表（用于生成 __repr__）
+    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False,
+                                                      compare=False)  # 句柄之后符号名称的列表（用于生成 __repr__）
     item_type: ItemType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目类型
     action: Callable = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目的规约行为函数
 
@@ -593,9 +594,7 @@ class ParserLALR1(ParserBase):
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
             other_item1_set = self.bfs_closure_item1(core_tuple)
-            # other_item1_set = set()
-            # for i1_id in core_tuple:
-            #     other_item1_set |= self.dfs_closure_item1(i1_id)
+            # other_item1_set = self.dfs_closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
@@ -708,29 +707,42 @@ class ParserLALR1(ParserBase):
 
         return item_set
 
-    @lru_cache(maxsize=None)
-    def dfs_closure_item1(self, i1_id: int) -> Set[int]:
-        """广度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
-        item1 = self.i1_id_to_item1_hash[i1_id]
-        print("DFS:", i1_id, item1)
-        after_handle = item1.item0.ah_id
-        if not after_handle:
-            return set()
+    def dfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
+        """深度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
 
-        self._dfs_visited.add(i1_id)
+        # 初始化项目集闭包中包含的其他项目列表
+        item_set: Set[int] = set()
+
+        for i1_id in core_tuple:
+            item1 = self.i1_id_to_item1_hash[i1_id]
+            ah_id = item1.item0.ah_id
+
+            # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
+            if not ah_id:
+                continue
+
+            item_set |= self.compute_all_level_lr1_closure(ah_id, item1.lookahead)
+
+        return item_set
+
+    @lru_cache(maxsize=None)
+    def compute_all_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
+        """深度优先搜索，记忆化搜索，计算 item1 所有的等价 LR(1) 项目的 ID 的集合"""
 
         # 计算单层的等价 LR(1) 项目
-        item1_set = self.compute_single_level_lr1_closure(
-            ah_id=after_handle,
-            lookahead=item1.lookahead
+        i1_id_set = self.compute_single_level_lr1_closure(
+            ah_id=ah_id,
+            lookahead=lookahead
         )
-        for sub_i1_id in list(item1_set):
-            if sub_i1_id not in self._dfs_visited:
-                item1_set |= self.dfs_closure_item1(sub_i1_id)
 
-        self._dfs_visited.remove(i1_id)
+        # 将等价项目组中需要继续寻找等价项目的添加到队列
+        for i1_id in list(i1_id_set):
+            sub_item1 = self.i1_id_to_item1_hash[i1_id]
+            sub_ah_id = sub_item1.item0.ah_id
+            if sub_ah_id and sub_ah_id != ah_id:
+                i1_id_set |= self.compute_all_level_lr1_closure(sub_ah_id, sub_item1.lookahead)
 
-        return item1_set
+        return i1_id_set
 
     @lru_cache(maxsize=None)
     def compute_single_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
