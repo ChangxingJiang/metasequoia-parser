@@ -593,8 +593,8 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
-            other_item1_set = self.bfs_closure_item1(core_tuple)
-            # other_item1_set = self.dfs_closure_item1(core_tuple)
+            # other_item1_set = self.bfs_closure_item1(core_tuple)
+            other_item1_set = self.dfs_closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
@@ -606,12 +606,12 @@ class ParserLALR1(ParserBase):
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
-            for i1_id in item1_set.core_tuple:
+            for i1_id in core_tuple:
                 item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
                     successor_group[successor_symbol].append(item1.successor_item)
-            for i1_id in item1_set.other_item1_set:
+            for i1_id in other_item1_set:
                 item1 = self.i1_id_to_item1_hash[i1_id]
                 successor_symbol = item1.item0.successor_symbol
                 if successor_symbol is not None:
