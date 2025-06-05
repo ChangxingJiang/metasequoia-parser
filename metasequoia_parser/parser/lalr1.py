@@ -2,7 +2,6 @@
 LR(1) 文法解析器
 """
 
-import abc
 import cProfile
 import collections
 import dataclasses
@@ -28,33 +27,7 @@ class ItemType(enum.Enum):
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class ItemBase(abc.ABC):
-    # pylint: disable=R0902
-    """项目类的抽象基类"""
-
-    @abc.abstractmethod
-    def __repr__(self) -> str:
-        """将 ItemBase 转换为字符串表示"""
-
-    @abc.abstractmethod
-    def get_symbol_id(self) -> int:
-        """获取符号 ID"""
-
-    @abc.abstractmethod
-    def get_before_handle(self) -> Tuple[int, ...]:
-        """获取句柄之前的符号名称的列表"""
-
-    @abc.abstractmethod
-    def get_after_handle(self) -> Tuple[int, ...]:
-        """获取句柄之后的符号名称的列表"""
-
-    @abc.abstractmethod
-    def is_accept(self) -> bool:
-        """是否为接受项目"""
-
-
-@dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class Item0(ItemBase):
+class Item0:
     """不提前查看下一个字符的项目类：适用于 LR(0) 解析器和 SLR 解析器
 
     Attributes
@@ -93,18 +66,6 @@ class Item0(ItemBase):
         after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
         return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str}"
 
-    def get_symbol_id(self) -> int:
-        """获取符号 ID"""
-        return self.nonterminal_id
-
-    def get_before_handle(self) -> Tuple[int, ...]:
-        """获取句柄之前的符号名称的列表"""
-        return self.before_handle
-
-    def get_after_handle(self) -> Tuple[int, ...]:
-        """获取句柄之后的符号名称的列表"""
-        return self.ah_id
-
     def is_init(self) -> bool:
         """是否为入口项目"""
         return self.item_type == ItemType.INIT
@@ -115,7 +76,7 @@ class Item0(ItemBase):
 
 
 @dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class Item1(ItemBase):
+class Item1:
     """提前查看下一个字符的项目类：适用于 LR(1) 解析器和 LALR(1) 解析器
 
     Attributes
@@ -137,22 +98,6 @@ class Item1(ItemBase):
     def __repr__(self) -> str:
         """将 ItemBase 转换为字符串表示"""
         return f"{self.item0},{self.lookahead}"
-
-    def get_symbol_id(self) -> int:
-        """获取符号 ID"""
-        return self.item0.nonterminal_id
-
-    def get_before_handle(self) -> Tuple[int, ...]:
-        """获取句柄之前的符号名称的列表"""
-        return self.item0.before_handle
-
-    def get_after_handle(self) -> Tuple[int, ...]:
-        """获取句柄之后的符号名称的列表"""
-        return self.item0.ah_id
-
-    def is_accept(self) -> bool:
-        """是否为接收项目"""
-        return self.item0.item_type == ItemType.ACCEPT
 
 
 @dataclasses.dataclass(slots=True)
@@ -442,9 +387,9 @@ class ParserLALR1(ParserBase):
             键为非终结符名称，值为非终结符对应项目的列表（泛型 T 为 ItemBase 的子类）
         """
         symbol_to_start_item_list_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
-        for item in self.i0_id_to_item0_hash:
-            if len(item.get_before_handle()) == 0:
-                symbol_to_start_item_list_hash[item.get_symbol_id()].append(item)
+        for item0 in self.i0_id_to_item0_hash:
+            if not item0.before_handle:
+                symbol_to_start_item_list_hash[item0.nonterminal_id].append(item0)
         return symbol_to_start_item_list_hash
 
     def get_init_i0_id(self) -> int:
