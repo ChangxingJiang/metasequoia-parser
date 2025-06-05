@@ -75,7 +75,8 @@ class Item0(ItemBase):
     # -------------------- 项目的基本信息（节点属性）--------------------
     nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
     before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之前的符号名称的列表
-    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之后的符号名称的列表
+    ah_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之后的符号名称的列表的 ID
+    after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 句柄之后符号名称的列表（用于生成 __repr__）
     item_type: ItemType = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目类型
     action: Callable = dataclasses.field(kw_only=True, hash=False, compare=False)  # 项目的规约行为函数
 
@@ -105,7 +106,7 @@ class Item0(ItemBase):
 
     def get_after_handle(self) -> Tuple[int, ...]:
         """获取句柄之后的符号名称的列表"""
-        return self.after_handle
+        return self.ah_id
 
     def is_init(self) -> bool:
         """是否为入口项目"""
@@ -174,7 +175,7 @@ class Item1(ItemBase):
 
     def get_after_handle(self) -> Tuple[int, ...]:
         """获取句柄之后的符号名称的列表"""
-        return self.item0.after_handle
+        return self.item0.ah_id
 
     def is_init(self) -> bool:
         """是否为入口项目"""
@@ -362,6 +363,12 @@ class ParserLALR1(ParserBase):
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         grammar: Grammar = self.grammar
         i0_id_to_item0_hash: List[Item0] = self.i0_id_to_item0_hash
+        after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = self.after_handle_to_ah_id_hash
+        ah_id_to_after_handle_hash: List[Tuple[int, ...]] = self.ah_id_to_after_handle_hash
+
+        # 添加空元组的值
+        after_handle_to_ah_id_hash[tuple()] = 0
+        ah_id_to_after_handle_hash.append(tuple())
 
         for product in grammar.get_product_list():
             if grammar.is_entrance_symbol(product.nonterminal_id):
@@ -379,6 +386,7 @@ class ParserLALR1(ParserBase):
                     i0_id=i0_id,
                     nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(),
+                    ah_id=0,
                     after_handle=tuple(),
                     action=product.action,
                     item_type=last_item_type,
@@ -396,6 +404,7 @@ class ParserLALR1(ParserBase):
                 i0_id=i0_id,
                 nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(product.symbol_id_list),
+                ah_id=0,
                 after_handle=tuple(),
                 action=product.action,
                 item_type=last_item_type,
@@ -410,11 +419,19 @@ class ParserLALR1(ParserBase):
             # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
             for i in range(len(product.symbol_id_list) - 1, 0, -1):
                 i0_id = len(i0_id_to_item0_hash)
+                after_handle = tuple(product.symbol_id_list[i:])
+                if after_handle not in after_handle_to_ah_id_hash:
+                    ah_id = len(ah_id_to_after_handle_hash)
+                    after_handle_to_ah_id_hash[after_handle] = ah_id
+                    ah_id_to_after_handle_hash.append(after_handle)
+                else:
+                    ah_id = after_handle_to_ah_id_hash[after_handle]
                 now_item = Item0(
                     i0_id=i0_id,
                     nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(product.symbol_id_list[:i]),
-                    after_handle=tuple(product.symbol_id_list[i:]),
+                    ah_id=ah_id,
+                    after_handle=after_handle,
                     action=product.action,
                     item_type=ItemType.SHIFT,
                     successor_symbol=product.symbol_id_list[i],
@@ -428,11 +445,19 @@ class ParserLALR1(ParserBase):
 
             # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
             i0_id = len(i0_id_to_item0_hash)
+            after_handle = tuple(product.symbol_id_list)
+            if after_handle not in after_handle_to_ah_id_hash:
+                ah_id = len(ah_id_to_after_handle_hash)
+                after_handle_to_ah_id_hash[after_handle] = ah_id
+                ah_id_to_after_handle_hash.append(after_handle)
+            else:
+                ah_id = after_handle_to_ah_id_hash[after_handle]
             i0_id_to_item0_hash.append(Item0(
                 i0_id=i0_id,
                 nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(),
-                after_handle=tuple(product.symbol_id_list),
+                ah_id=ah_id,
+                after_handle=after_handle,
                 action=product.action,
                 item_type=first_item_type,
                 successor_symbol=product.symbol_id_list[0],
@@ -645,23 +670,23 @@ class ParserLALR1(ParserBase):
         queue = collections.deque()
         for i1_id in core_tuple:
             item1 = self.i1_id_to_item1_hash[i1_id]
-            after_handle = item1.item0.after_handle
+            ah_id = item1.item0.ah_id
 
             # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
-            if not after_handle:
+            if not ah_id:
                 continue
 
             # 将句柄之后的符号列表 + 展望符添加到队列中
-            visited_symbol_set.add((after_handle, item1.lookahead))
-            queue.append((after_handle, item1.lookahead))
+            visited_symbol_set.add((ah_id, item1.lookahead))
+            queue.append((ah_id, item1.lookahead))
 
         # 广度优先搜索所有的等价项目组
         while queue:
-            after_handle, lookahead = queue.popleft()
+            ah_id, lookahead = queue.popleft()
 
             # 计算单层的等价 LR(1) 项目
             sub_item_set = self.compute_single_level_lr1_closure(
-                after_handle=after_handle,
+                ah_id=ah_id,
                 lookahead=lookahead
             )
 
@@ -672,14 +697,14 @@ class ParserLALR1(ParserBase):
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             for i1_id in diff_set:
                 sub_item1 = self.i1_id_to_item1_hash[i1_id]
-                after_handle = sub_item1.item0.after_handle
-                if not after_handle:
+                ah_id = sub_item1.item0.ah_id
+                if not ah_id:
                     continue  # 跳过匹配 %empty 的项目
 
                 lookahead = sub_item1.lookahead
-                if (after_handle, lookahead) not in visited_symbol_set:
-                    visited_symbol_set.add((after_handle, lookahead))
-                    queue.append((after_handle, lookahead))
+                if (ah_id, lookahead) not in visited_symbol_set:
+                    visited_symbol_set.add((ah_id, lookahead))
+                    queue.append((ah_id, lookahead))
 
         return item_set
 
@@ -688,7 +713,7 @@ class ParserLALR1(ParserBase):
         """广度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
         item1 = self.i1_id_to_item1_hash[i1_id]
         print("DFS:", i1_id, item1)
-        after_handle = item1.item0.after_handle
+        after_handle = item1.item0.ah_id
         if not after_handle:
             return set()
 
@@ -696,7 +721,7 @@ class ParserLALR1(ParserBase):
 
         # 计算单层的等价 LR(1) 项目
         item1_set = self.compute_single_level_lr1_closure(
-            after_handle=after_handle,
+            ah_id=after_handle,
             lookahead=item1.lookahead
         )
         for sub_i1_id in list(item1_set):
@@ -708,15 +733,15 @@ class ParserLALR1(ParserBase):
         return item1_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, after_handle: Tuple[int, ...], lookahead: int) -> Set[int]:
+    def compute_single_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
 
         Parameters
         ----------
-        after_handle : Tuple[int, ...]
-            LR(1) 项目在句柄之后的符号的元组
+        ah_id : int
+            LR(1) 项目在句柄之后的符号元组的 ID
         lookahead : int
             LR(1) 项目的展望符（作为继承的后继符）
 
@@ -726,6 +751,7 @@ class ParserLALR1(ParserBase):
             等价 LR(1) 项目的集合
         """
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
+        after_handle = self.ah_id_to_after_handle_hash[ah_id]
         len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
 
         # 如果开头符号是终结符，则不存在等价项目
@@ -784,7 +810,8 @@ class ParserLALR1(ParserBase):
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
             item1_set = sid_to_item1_set_hash[sid]
-            centric_tuple = tuple(sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple))))
+            centric_tuple = tuple(
+                sorted(list(set(self.i1_id_to_item1_hash[i1_id].item0.i0_id for i1_id in core_tuple))))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(item1_set)
         return concentric_hash
