@@ -571,8 +571,8 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
-            # other_item1_set = self.bfs_closure_item1(core_tuple)
-            other_item1_set = self.dfs_closure_item1(core_tuple)
+            other_item1_set = self.bfs_closure_item1(core_tuple)
+            # other_item1_set = self.dfs_closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             item1_set = Item1Set.create(
@@ -640,7 +640,7 @@ class ParserLALR1(ParserBase):
             项目集闭包中包含的项目列表
         """
         # 初始化项目集闭包中包含的其他项目列表
-        item_set: Set[int] = set()
+        i1_id_set: Set[int] = set()
 
         # 初始化广度优先搜索的第 1 批节点
         visited_symbol_set = set()
@@ -668,8 +668,8 @@ class ParserLALR1(ParserBase):
             )
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            diff_set = sub_item_set - item_set
-            item_set |= diff_set
+            diff_set = sub_item_set - i1_id_set
+            i1_id_set |= diff_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             for i1_id in diff_set:
@@ -683,7 +683,10 @@ class ParserLALR1(ParserBase):
                     visited_symbol_set.add((ah_id, lookahead))
                     queue.append((ah_id, lookahead))
 
-        return item_set
+        # print("core_tuple:", [self.i1_id_to_item1_hash[i1_id] for i1_id in core_tuple])
+        # print(len(i1_id_set), ":", [self.i1_id_to_item1_hash[i1_id] for i1_id in i1_id_set])
+
+        return i1_id_set
 
     def dfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
         """深度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
