@@ -684,7 +684,7 @@ class ParserLALR1(ParserBase):
 
         return sub_item_set
 
-    def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[Item1Set]]:
+    def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
 
         Returns
@@ -694,15 +694,13 @@ class ParserLALR1(ParserBase):
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
-        sid_to_item1_set_hash: List[Item1Set] = self.sid_to_item1_set_hash
 
         concentric_hash = collections.defaultdict(list)
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
-            item1_set = sid_to_item1_set_hash[sid]
             centric_tuple = tuple(sorted(set(self.i1_id_to_i0_id_hash[i1_id] for i1_id in core_tuple)))
             # 根据项目集核心进行聚合
-            concentric_hash[centric_tuple].append(item1_set)
+            concentric_hash[centric_tuple].append(sid)
         return concentric_hash
 
     def merge_same_concentric_item1_set(self) -> None:
@@ -714,14 +712,15 @@ class ParserLALR1(ParserBase):
         sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
         sid_to_item1_set_hash: List[Item1Set] = self.sid_to_item1_set_hash
 
-        for _, item1_set_list in self.concentric_hash.items():
-            if len(item1_set_list) == 1:
+        for _, sid_list in self.concentric_hash.items():
+            if len(sid_list) == 1:
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
 
             # 构造新的项目集
             new_core_item_set: Set[int] = set()  # 新项目集的核心项目
             new_other_item_set: Set[int] = set()  # 新项目集的其他等价项目
-            for item1_set in item1_set_list:
+            for sid in sid_list:
+                item1_set = self.sid_to_item1_set_hash[sid]
                 new_core_item_set |= set(item1_set.core_tuple)
                 new_other_item_set |= item1_set.other_item1_set
 
@@ -740,13 +739,13 @@ class ParserLALR1(ParserBase):
             sid_to_item1_set_hash.append(new_item1_set)
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
-            for item1_set in item1_set_list:
-                self.core_tuple_hash[item1_set.sid] = new_sid1
+            for sid in sid_list:
+                self.core_tuple_hash[sid] = new_sid1
 
             # 整理记录有效 SID1 的集合
-            for item1_set in item1_set_list:
-                if item1_set.sid in self.sid_set:
-                    self.sid_set.remove(item1_set.sid)
+            for sid in sid_list:
+                if sid in self.sid_set:
+                    self.sid_set.remove(sid)
             self.sid_set.add(new_sid1)
 
     def create_item1_set_relation(self) -> None:
