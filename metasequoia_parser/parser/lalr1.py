@@ -609,42 +609,6 @@ class ParserLALR1(ParserBase):
 
         return i1_id_set
 
-    def dfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
-        """深度优先搜索，记忆化搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）"""
-
-        # 初始化项目集闭包中包含的其他项目列表
-        i1_id_set: Set[int] = set()
-
-        for i1_id in core_tuple:
-            ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
-
-            # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
-            if not ah_id:
-                continue
-
-            i1_id_set |= self.compute_all_level_lr1_closure(ah_id, lookahead)
-
-        return i1_id_set
-
-    @lru_cache(maxsize=None)
-    def compute_all_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
-        """深度优先搜索，记忆化搜索，计算 item1 所有的等价 LR(1) 项目的 ID 的集合"""
-        # 计算单层的等价 LR(1) 项目
-        i1_id_set = self.compute_single_level_lr1_closure(
-            ah_id=ah_id,
-            lookahead=lookahead
-        )
-
-        # 将等价项目组中需要继续寻找等价项目的添加到队列
-        self._dfs_visited.add(ah_id)
-        for i1_id in list(i1_id_set):
-            sub_ah_id, sub_lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
-            if sub_ah_id and sub_ah_id not in self._dfs_visited:
-                i1_id_set |= self.compute_all_level_lr1_closure(sub_ah_id, sub_lookahead)
-        self._dfs_visited.remove(ah_id)
-
-        return i1_id_set
-
     @lru_cache(maxsize=None)
     def compute_single_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
