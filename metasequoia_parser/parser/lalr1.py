@@ -7,14 +7,17 @@ import collections
 import dataclasses
 import enum
 from functools import lru_cache
-from typing import Callable, Dict, List, Optional, Set, Tuple
 from itertools import chain
+from typing import Callable, Dict, List, Optional, Set, Tuple
+
 from metasequoia_parser.common import ActionAccept, ActionError, ActionGoto, ActionReduce, ActionShift
 from metasequoia_parser.common import CombineType
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import ParserBase
 from metasequoia_parser.utils import LOGGER
 
+
+# from line_profiler_pycharm import profile
 
 class ItemType(enum.Enum):
     """项目类型的枚举类"""
@@ -142,7 +145,7 @@ class ParserLALR1(ParserBase):
         self.item1_set_relation: List[Tuple[int, int, int]] = []  # 核心项目之间的关联关系
         self.core_tuple_to_sid_hash: Dict[Tuple[int, ...], int] = {}  # 核心项目到 SID1 的映射
         self.sid_to_core_tuple_hash: List[Tuple[int, ...]] = []  # SID1 到 LR(1) 项目集核心元组的映射
-        self.sid_to_all_i1_id_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集所有元素的映射
+        self.sid_to_other_i1_id_set_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集所有元素的映射
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.i1_id_to_i0_id_hash: List[int] = []
@@ -161,7 +164,6 @@ class ParserLALR1(ParserBase):
         self.i1_id_to_successor_hash: List[Tuple[int, int]] = []
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
-        # self._dfs_visited = set()
         self.init_i1_id: Optional[int] = None
         self.bfs_search_item1_set()
 
@@ -448,13 +450,15 @@ class ParserLALR1(ParserBase):
 
         return nonterminal_all_start_terminal
 
+    # @profile
     def bfs_search_item1_set(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        core_tuple_to_sid_hash: Dict[Tuple[int, ...], int] = self.core_tuple_to_sid_hash
-        sid_to_core_tuple_hash: List[Tuple[int, ...]] = self.sid_to_core_tuple_hash
-        item1_set_relation: List[Tuple[int, int, int]] = self.item1_set_relation
+        core_tuple_to_sid_hash = self.core_tuple_to_sid_hash
+        sid_to_core_tuple_hash = self.sid_to_core_tuple_hash
+        item1_set_relation = self.item1_set_relation
+        i1_id_to_successor_hash = self.i1_id_to_successor_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_i1_id = self._create_item1(self.i0_id_to_item0_hash[self.init_i0_id], self.grammar.end_terminal)
@@ -478,15 +482,15 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
-            other_item1_set = self.bfs_closure_item1(core_tuple)
+            other_i1_id_set = self.bfs_closure_item1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
-            self.sid_to_all_i1_id_hash.append(other_item1_set)
+            self.sid_to_other_i1_id_set_hash.append(other_i1_id_set)
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
-            for i1_id in chain(core_tuple, other_item1_set):
-                successor_symbol, successor_i1_id = self.i1_id_to_successor_hash[i1_id]
+            for i1_id in chain(core_tuple, other_i1_id_set):
+                successor_symbol, successor_i1_id = i1_id_to_successor_hash[i1_id]
                 if successor_symbol is not None:
                     successor_group[successor_symbol].append(successor_i1_id)
 
@@ -508,6 +512,7 @@ class ParserLALR1(ParserBase):
                     queue.append(successor_sid1)
                     visited.add(successor_sid1)
 
+    # @profile
     def bfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
         # pylint: disable=R0912
         # pylint: disable=R0914
@@ -530,33 +535,35 @@ class ParserLALR1(ParserBase):
         List[int]
             项目集闭包中包含的项目列表
         """
+        i1_id_to_cid_hash = self.i1_id_to_cid_hash  # 【性能设计】将实例变量缓存为局部遍历那个
+
         # 初始化项目集闭包中包含的其他项目列表
         i1_id_set: Set[int] = set()
 
         # 初始化广度优先搜索的第 1 批节点
-        visited_cid_set = {self.i1_id_to_cid_hash[i1_id] for i1_id in core_tuple}
+        visited_cid_set = {i1_id_to_cid_hash[i1_id] for i1_id in core_tuple}
         queue = collections.deque(visited_cid_set)
 
         # 广度优先搜索所有的等价项目组
         while queue:
-            cid = queue.popleft()
-
             # 计算单层的等价 LR(1) 项目
-            sub_i1_id_set = self.compute_single_level_lr1_closure(cid)
+            sub_i1_id_set = self.compute_single_level_lr1_closure(queue.popleft())
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
             i1_id_set |= sub_i1_id_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
+            # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
             for i1_id in sub_i1_id_set:
-                cid = self.i1_id_to_cid_hash[i1_id]
-                if cid not in visited_cid_set:
-                    visited_cid_set.add(cid)
-                    queue.append(cid)
+                new_cid = i1_id_to_cid_hash[i1_id]
+                if new_cid not in visited_cid_set:
+                    visited_cid_set.add(new_cid)
+                    queue.append(new_cid)
 
         return i1_id_set
 
     @lru_cache(maxsize=None)
+    # @profile
     def compute_single_level_lr1_closure(self, cid: int) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
@@ -658,7 +665,7 @@ class ParserLALR1(ParserBase):
             new_other_item_set: Set[int] = set()  # 新项目集的其他等价项目
             for sid in sid_list:
                 core_tuple = self.sid_to_core_tuple_hash[sid]
-                all_i1_id_set = self.sid_to_all_i1_id_hash[sid]
+                all_i1_id_set = self.sid_to_other_i1_id_set_hash[sid]
                 new_core_item_set |= set(core_tuple)
                 new_other_item_set |= all_i1_id_set
 
@@ -668,7 +675,7 @@ class ParserLALR1(ParserBase):
             new_sid1 = len(self.sid_to_core_tuple_hash)
             core_tuple_to_sid_hash[new_core_tuple] = new_sid1
             sid_to_core_tuple_hash.append(new_core_tuple)
-            self.sid_to_all_i1_id_hash.append(new_other_item_set)
+            self.sid_to_other_i1_id_set_hash.append(new_other_item_set)
 
             # 记录旧 core_tuple 到新 core_tuple 的映射
             for sid in sid_list:
@@ -723,7 +730,7 @@ class ParserLALR1(ParserBase):
                     table[status_id][successor_symbol] = ActionGoto(status=next_status_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-            for i1_id in chain(self.sid_to_core_tuple_hash[sid1], self.sid_to_all_i1_id_hash[sid1]):
+            for i1_id in chain(self.sid_to_core_tuple_hash[sid1], self.sid_to_other_i1_id_set_hash[sid1]):
                 i0_id = self.i1_id_to_i0_id_hash[i1_id]
                 lookahead = self.i1_id_to_lookahead_hash[i1_id]
                 item0 = self.i0_id_to_item0_hash[i0_id]
