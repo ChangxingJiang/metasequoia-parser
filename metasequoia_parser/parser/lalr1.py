@@ -596,29 +596,24 @@ class ParserLALR1(ParserBase):
         i1_id_set: Set[int] = set()
 
         # 初始化广度优先搜索的第 1 批节点
-        visited_symbol_set = set()
-        queue = collections.deque()
-        for i1_id in core_tuple:
-            cid = self.i1_id_to_cid_hash[i1_id]
-            # 将句柄之后的符号列表 + 展望符添加到队列中
-            visited_symbol_set.add(cid)
-            queue.append(cid)
+        visited_cid_set = {self.i1_id_to_cid_hash[i1_id] for i1_id in core_tuple}
+        queue = collections.deque(visited_cid_set)
 
         # 广度优先搜索所有的等价项目组
         while queue:
             cid = queue.popleft()
 
             # 计算单层的等价 LR(1) 项目
-            sub_item_set = self.compute_single_level_lr1_closure(cid)
+            sub_i1_id_set = self.compute_single_level_lr1_closure(cid)
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            i1_id_set |= sub_item_set
+            i1_id_set |= sub_i1_id_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
-            for i1_id in sub_item_set:
+            for i1_id in sub_i1_id_set:
                 cid = self.i1_id_to_cid_hash[i1_id]
-                if cid not in visited_symbol_set:
-                    visited_symbol_set.add(cid)
+                if cid not in visited_cid_set:
+                    visited_cid_set.add(cid)
                     queue.append(cid)
 
         return i1_id_set
