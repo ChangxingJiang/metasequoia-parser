@@ -612,11 +612,10 @@ class ParserLALR1(ParserBase):
             sub_item_set = self.compute_single_level_lr1_closure(cid)
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            diff_set = sub_item_set - i1_id_set
-            i1_id_set |= diff_set
+            i1_id_set |= sub_item_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
-            for i1_id in diff_set:
+            for i1_id in sub_item_set:
                 cid = self.i1_id_to_cid_hash[i1_id]
                 if cid not in visited_symbol_set:
                     visited_symbol_set.add(cid)
