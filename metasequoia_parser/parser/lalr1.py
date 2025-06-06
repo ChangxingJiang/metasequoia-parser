@@ -75,31 +75,6 @@ class Item0:
         return self.item_type == ItemType.ACCEPT
 
 
-@dataclasses.dataclass(slots=True, frozen=True, eq=True, order=True)
-class Item1:
-    """提前查看下一个字符的项目类：适用于 LR(1) 解析器和 LALR(1) 解析器
-
-    Attributes
-    ----------
-    successor_i1_id : Optional[Item0]
-        连接到的后继项目对象
-    """
-
-    # -------------------- 性能设计 --------------------
-    # 【性能设计】Item1 项目集唯一 ID
-    # 通过在构造时添加 Item1 项目集的唯一 ID，从而将 Item1 项目集的哈希计算优化为直接获取唯一 ID
-    i1_id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
-
-    # -------------------- 项目的基本属性 --------------------
-    item0: Item0 = dataclasses.field(kw_only=True, hash=False, compare=True)  # 连接到的后继项目对象
-    lookahead: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 展望符（终结符）
-    successor_i1_id: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 后继 LR(1) 项目的 ID
-
-    def __repr__(self) -> str:
-        """将 ItemBase 转换为字符串表示"""
-        return f"{self.item0},{self.lookahead}"
-
-
 # 接受（ACCEPT）类型或规约（REDUCE）类型的集合
 ACCEPT_OR_REDUCE = {ItemType.ACCEPT, ItemType.REDUCE}
 
@@ -555,12 +530,12 @@ class ParserLALR1(ParserBase):
 
         Parameters
         ----------
-        core_tuple : Tuple[Item1]
+        core_tuple : Tuple[int]
             项目集闭包的核心项目（最高层级项目）
 
         Returns
         -------
-        List[Item1]
+        List[int]
             项目集闭包中包含的项目列表
         """
         # 初始化项目集闭包中包含的其他项目列表
@@ -602,7 +577,7 @@ class ParserLALR1(ParserBase):
 
         Returns
         -------
-        Set[Item1]
+        Set[int]
             等价 LR(1) 项目的集合
         """
         ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
