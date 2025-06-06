@@ -582,11 +582,6 @@ class ParserLALR1(ParserBase):
         queue = collections.deque()
         for i1_id in core_tuple:
             ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
-
-            # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
-            if not ah_id:
-                continue
-
             # 将句柄之后的符号列表 + 展望符添加到队列中
             visited_symbol_set.add((ah_id, lookahead))
             queue.append((ah_id, lookahead))
@@ -608,9 +603,6 @@ class ParserLALR1(ParserBase):
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             for i1_id in diff_set:
                 ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
-                if not ah_id:
-                    continue  # 跳过匹配 %empty 的项目
-
                 if (ah_id, lookahead) not in visited_symbol_set:
                     visited_symbol_set.add((ah_id, lookahead))
                     queue.append((ah_id, lookahead))
@@ -671,6 +663,10 @@ class ParserLALR1(ParserBase):
         Set[Item1]
             等价 LR(1) 项目的集合
         """
+        # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
+        if ah_id == 0:
+            return set()
+
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
         after_handle = self.ah_id_to_after_handle_hash[ah_id]
         len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
