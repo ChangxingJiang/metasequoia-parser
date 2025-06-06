@@ -193,8 +193,17 @@ class ParserLALR1(ParserBase):
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.i1_id_to_i0_id_hash: List[int] = []
-        # LR(1) 项目 ID 到指向的 LR(0) 项目中句柄之后的符号列表的唯一 ID 及 LR(1) 项目展望符的映射
-        self.i1_id_to_ah_id_and_lookahead_hash: List[Tuple[int, int]] = []
+
+        # 查询组合 ID 到句柄之后的符号列表的唯一 ID 与展望符的组合的唯一 ID 的映射
+        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
+        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, int], int] = {}  # 用于构造唯一 ID
+
+        # LR(1) 项目 ID 到组合 ID 的映射
+        self.i1_id_to_cid_hash: List[int] = []
+
+        # LR(1) 项目 ID 到展望符的映射
+        self.i1_id_to_lookahead_hash: List[int] = []
+
         # LR(1) 项目 ID 到后继符号及后继 LR(1) 项目 ID
         self.i1_id_to_successor_hash: List[Tuple[int, int]] = []
 
@@ -421,7 +430,16 @@ class ParserLALR1(ParserBase):
         i1_id = len(self.item1_core_to_i1_id_hash)
         self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
         self.i1_id_to_i0_id_hash.append(item0.i0_id)
-        self.i1_id_to_ah_id_and_lookahead_hash.append((item0.ah_id, lookahead))
+        self.i1_id_to_lookahead_hash.append(lookahead)
+
+        if (item0.ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash:
+            cid = len(self.ah_id_and_lookahead_to_cid_hash)
+            self.ah_id_and_lookahead_to_cid_hash[(item0.ah_id, lookahead)] = cid
+            self.cid_to_ah_id_and_lookahead_list.append((item0.ah_id, lookahead))
+        else:
+            cid = self.ah_id_and_lookahead_to_cid_hash[(item0.ah_id, lookahead)]
+        self.i1_id_to_cid_hash.append(cid)
+
         self.i1_id_to_successor_hash.append((item0.successor_symbol, successor_item1))
         return i1_id
 
@@ -581,20 +599,17 @@ class ParserLALR1(ParserBase):
         visited_symbol_set = set()
         queue = collections.deque()
         for i1_id in core_tuple:
-            ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
+            cid = self.i1_id_to_cid_hash[i1_id]
             # 将句柄之后的符号列表 + 展望符添加到队列中
-            visited_symbol_set.add((ah_id, lookahead))
-            queue.append((ah_id, lookahead))
+            visited_symbol_set.add(cid)
+            queue.append(cid)
 
         # 广度优先搜索所有的等价项目组
         while queue:
-            ah_id, lookahead = queue.popleft()
+            cid = queue.popleft()
 
             # 计算单层的等价 LR(1) 项目
-            sub_item_set = self.compute_single_level_lr1_closure(
-                ah_id=ah_id,
-                lookahead=lookahead
-            )
+            sub_item_set = self.compute_single_level_lr1_closure(cid)
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
             diff_set = sub_item_set - i1_id_set
@@ -602,31 +617,31 @@ class ParserLALR1(ParserBase):
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             for i1_id in diff_set:
-                ah_id, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
-                if (ah_id, lookahead) not in visited_symbol_set:
-                    visited_symbol_set.add((ah_id, lookahead))
-                    queue.append((ah_id, lookahead))
+                cid = self.i1_id_to_cid_hash[i1_id]
+                if cid not in visited_symbol_set:
+                    visited_symbol_set.add(cid)
+                    queue.append(cid)
 
         return i1_id_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
+    def compute_single_level_lr1_closure(self, cid: int) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
 
         Parameters
         ----------
-        ah_id : int
-            LR(1) 项目在句柄之后的符号元组的 ID
-        lookahead : int
-            LR(1) 项目的展望符（作为继承的后继符）
+        cid : int
+            组合 ID
 
         Returns
         -------
         Set[Item1]
             等价 LR(1) 项目的集合
         """
+        ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
+
         # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
         if ah_id == 0:
             return set()
@@ -786,7 +801,7 @@ class ParserLALR1(ParserBase):
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for i1_id in item1_set.core_tuple:
                 i0_id = self.i1_id_to_i0_id_hash[i1_id]
-                _, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
+                lookahead = self.i1_id_to_lookahead_hash[i1_id]
                 item0 = self.i0_id_to_item0_hash[i0_id]
                 if item0.successor_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=item0.nonterminal_id,
@@ -800,7 +815,7 @@ class ParserLALR1(ParserBase):
                     ))
             for i1_id in item1_set.other_item1_set:
                 i0_id = self.i1_id_to_i0_id_hash[i1_id]
-                _, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
+                lookahead = self.i1_id_to_lookahead_hash[i1_id]
                 item0 = self.i0_id_to_item0_hash[i0_id]
                 if item0.successor_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=item0.nonterminal_id,
