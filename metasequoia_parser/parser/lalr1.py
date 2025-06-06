@@ -491,23 +491,19 @@ class ParserLALR1(ParserBase):
                     successor_group[successor_symbol].append(successor_i1_id)
 
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
-            successor_core_tuple_hash = {}
-            for successor_symbol, sub_item1_set in successor_group.items():
-                successor_core_tuple: Tuple[int, ...] = tuple(sorted(set(sub_item1_set)))
+            for successor_symbol, sub_i1_id_set in successor_group.items():
+                successor_core_tuple: Tuple[int, ...] = tuple(sorted(set(sub_i1_id_set)))
                 if successor_core_tuple not in core_tuple_to_sid_hash:
                     successor_sid1 = len(core_tuple_to_sid_hash)
                     core_tuple_to_sid_hash[successor_core_tuple] = successor_sid1
                     sid_to_core_tuple_hash.append(successor_core_tuple)
                 else:
                     successor_sid1 = core_tuple_to_sid_hash[successor_core_tuple]
-                successor_core_tuple_hash[successor_symbol] = successor_sid1
 
-            # 记录项目集闭包之间的关联关系
-            for successor_symbol, successor_sid1 in successor_core_tuple_hash.items():
+                # 记录 LR(1) 项目集之间的前驱 / 后继关系
                 item1_set_relation.append((sid1, successor_symbol, successor_sid1))
 
-            # 将后继项目集闭包的核心项目元组添加到队列
-            for successor_sid1 in successor_core_tuple_hash.values():
+                # 将后继项目集闭包的核心项目元组添加到队列
                 if successor_sid1 not in visited:
                     queue.append(successor_sid1)
                     visited.add(successor_sid1)
