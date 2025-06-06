@@ -8,7 +8,7 @@ import dataclasses
 import enum
 from functools import lru_cache
 from typing import Callable, Dict, List, Optional, Set, Tuple
-
+from itertools import chain
 from metasequoia_parser.common import ActionAccept, ActionError, ActionGoto, ActionReduce, ActionShift
 from metasequoia_parser.common import CombineType
 from metasequoia_parser.common import Grammar
@@ -485,11 +485,7 @@ class ParserLALR1(ParserBase):
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
-            for i1_id in core_tuple:
-                successor_symbol, successor_i1_id = self.i1_id_to_successor_hash[i1_id]
-                if successor_symbol is not None:
-                    successor_group[successor_symbol].append(successor_i1_id)
-            for i1_id in other_item1_set:
+            for i1_id in chain(core_tuple, other_item1_set):
                 successor_symbol, successor_i1_id = self.i1_id_to_successor_hash[i1_id]
                 if successor_symbol is not None:
                     successor_group[successor_symbol].append(successor_i1_id)
@@ -731,21 +727,7 @@ class ParserLALR1(ParserBase):
                     table[status_id][successor_symbol] = ActionGoto(status=next_status_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-            for i1_id in self.sid_to_core_tuple_hash[sid1]:
-                i0_id = self.i1_id_to_i0_id_hash[i1_id]
-                lookahead = self.i1_id_to_lookahead_hash[i1_id]
-                item0 = self.i0_id_to_item0_hash[i0_id]
-                if item0.successor_symbol is None:
-                    reduce_action = ActionReduce(reduce_nonterminal_id=item0.nonterminal_id,
-                                                 n_param=len(item0.before_handle),
-                                                 reduce_function=item0.action)
-                    position_reduce_list_hash[(status_id, lookahead)].append((
-                        item0.rr_priority_idx,  # RR 优先级
-                        item0.sr_priority_idx,  # SR 优先级
-                        item0.sr_combine_type,  # SR 合并顺序
-                        reduce_action
-                    ))
-            for i1_id in self.sid_to_all_i1_id_hash[sid1]:
+            for i1_id in chain(self.sid_to_core_tuple_hash[sid1], self.sid_to_all_i1_id_hash[sid1]):
                 i0_id = self.i1_id_to_i0_id_hash[i1_id]
                 lookahead = self.i1_id_to_lookahead_hash[i1_id]
                 item0 = self.i0_id_to_item0_hash[i0_id]
