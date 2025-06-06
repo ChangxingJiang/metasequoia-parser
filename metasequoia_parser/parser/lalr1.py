@@ -191,12 +191,12 @@ class ParserLALR1(ParserBase):
         self.sid_to_core_tuple_hash: List[Tuple[int, ...]] = []  # SID1 到核心项目的映射
         self.sid_to_item1_set_hash: List[Item1Set] = []  # SID1 到 LR(1) 项目集的映射
 
-        # LR(1) 项目 ID 到 LR(1) 项目对象的映射
-        self.i1_id_to_item1_hash: List[Item1] = []
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.i1_id_to_i0_id_hash: List[int] = []
-        # LR(1) 项目 ID 到 “指向的 LR(0) 项目中句柄之后的符号列表的唯一 ID” 及 LR(1) 项目展望符的映射
+        # LR(1) 项目 ID 到指向的 LR(0) 项目中句柄之后的符号列表的唯一 ID 及 LR(1) 项目展望符的映射
         self.i1_id_to_ah_id_and_lookahead_hash: List[Tuple[int, int]] = []
+        # LR(1) 项目 ID 到后继符号及后继 LR(1) 项目 ID
+        self.i1_id_to_successor_hash: List[Tuple[int, int]] = []
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
         # self._dfs_visited = set()
@@ -418,17 +418,11 @@ class ParserLALR1(ParserBase):
         else:
             successor_item1 = None
 
-        i1_id = len(self.i1_id_to_item1_hash)
-        item1 = Item1(
-            i1_id=i1_id,
-            item0=item0,
-            lookahead=lookahead,
-            successor_i1_id=successor_item1
-        )
+        i1_id = len(self.item1_core_to_i1_id_hash)
         self.item1_core_to_i1_id_hash[(item0.i0_id, lookahead)] = i1_id
-        self.i1_id_to_item1_hash.append(item1)
         self.i1_id_to_i0_id_hash.append(item0.i0_id)
         self.i1_id_to_ah_id_and_lookahead_hash.append((item0.ah_id, lookahead))
+        self.i1_id_to_successor_hash.append((item0.successor_symbol, successor_item1))
         return i1_id
 
     def cal_nonterminal_all_start_terminal(self, nonterminal_name_list: List[int]) -> Dict[int, Set[int]]:
@@ -528,15 +522,13 @@ class ParserLALR1(ParserBase):
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             successor_group = collections.defaultdict(list)
             for i1_id in core_tuple:
-                item1 = self.i1_id_to_item1_hash[i1_id]
-                successor_symbol = item1.item0.successor_symbol
+                successor_symbol, successor_i1_id = self.i1_id_to_successor_hash[i1_id]
                 if successor_symbol is not None:
-                    successor_group[successor_symbol].append(item1.successor_i1_id)
+                    successor_group[successor_symbol].append(successor_i1_id)
             for i1_id in other_item1_set:
-                item1 = self.i1_id_to_item1_hash[i1_id]
-                successor_symbol = item1.item0.successor_symbol
+                successor_symbol, successor_i1_id = self.i1_id_to_successor_hash[i1_id]
                 if successor_symbol is not None:
-                    successor_group[successor_symbol].append(item1.successor_i1_id)
+                    successor_group[successor_symbol].append(successor_i1_id)
 
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             successor_core_tuple_hash = {}
@@ -833,27 +825,31 @@ class ParserLALR1(ParserBase):
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for i1_id in item1_set.core_tuple:
-                sub_item1 = self.i1_id_to_item1_hash[i1_id]
-                if sub_item1.item0.successor_symbol is None:
-                    reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
-                                                 n_param=len(sub_item1.item0.before_handle),
-                                                 reduce_function=sub_item1.item0.action)
-                    position_reduce_list_hash[(status_id, sub_item1.lookahead)].append((
-                        sub_item1.item0.rr_priority_idx,  # RR 优先级
-                        sub_item1.item0.sr_priority_idx,  # SR 优先级
-                        sub_item1.item0.sr_combine_type,  # SR 合并顺序
+                i0_id = self.i1_id_to_i0_id_hash[i1_id]
+                _, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
+                item0 = self.i0_id_to_item0_hash[i0_id]
+                if item0.successor_symbol is None:
+                    reduce_action = ActionReduce(reduce_nonterminal_id=item0.nonterminal_id,
+                                                 n_param=len(item0.before_handle),
+                                                 reduce_function=item0.action)
+                    position_reduce_list_hash[(status_id, lookahead)].append((
+                        item0.rr_priority_idx,  # RR 优先级
+                        item0.sr_priority_idx,  # SR 优先级
+                        item0.sr_combine_type,  # SR 合并顺序
                         reduce_action
                     ))
             for i1_id in item1_set.other_item1_set:
-                sub_item1 = self.i1_id_to_item1_hash[i1_id]
-                if sub_item1.item0.successor_symbol is None:
-                    reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
-                                                 n_param=len(sub_item1.item0.before_handle),
-                                                 reduce_function=sub_item1.item0.action)
-                    position_reduce_list_hash[(status_id, sub_item1.lookahead)].append((
-                        sub_item1.item0.rr_priority_idx,  # RR 优先级
-                        sub_item1.item0.sr_priority_idx,  # SR 优先级
-                        sub_item1.item0.sr_combine_type,  # SR 合并顺序
+                i0_id = self.i1_id_to_i0_id_hash[i1_id]
+                _, lookahead = self.i1_id_to_ah_id_and_lookahead_hash[i1_id]
+                item0 = self.i0_id_to_item0_hash[i0_id]
+                if item0.successor_symbol is None:
+                    reduce_action = ActionReduce(reduce_nonterminal_id=item0.nonterminal_id,
+                                                 n_param=len(item0.before_handle),
+                                                 reduce_function=item0.action)
+                    position_reduce_list_hash[(status_id, lookahead)].append((
+                        item0.rr_priority_idx,  # RR 优先级
+                        item0.sr_priority_idx,  # SR 优先级
+                        item0.sr_combine_type,  # SR 合并顺序
                         reduce_action
                     ))
 
