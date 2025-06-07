@@ -373,10 +373,11 @@ class ParserLALR1(ParserBase):
 
     def _create_item1(self, lr0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
+        lr0_id = lr0.id
 
         # 如果 item1 已经存在则返回已存在 item1
-        if (lr0.id, lookahead) in self.item1_core_to_i1_id_hash:
-            return self.item1_core_to_i1_id_hash[(lr0.id, lookahead)]
+        if (lr0_id, lookahead) in self.item1_core_to_i1_id_hash:
+            return self.item1_core_to_i1_id_hash[(lr0_id, lookahead)]
 
         if lr0.successor_item is not None:
             successor_item1 = self._create_item1(lr0.successor_item, lookahead)
@@ -384,26 +385,27 @@ class ParserLALR1(ParserBase):
             successor_item1 = None
 
         i1_id = len(self.item1_core_to_i1_id_hash)
-        self.item1_core_to_i1_id_hash[(lr0.id, lookahead)] = i1_id
-        self.lr1_id_to_lr0_id_hash.append(lr0.id)
+        self.item1_core_to_i1_id_hash[(lr0_id, lookahead)] = i1_id
+        self.lr1_id_to_lr0_id_hash.append(lr0_id)
         self.i1_id_to_lookahead_hash.append(lookahead)
 
-        if (lr0.ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash:
+        ah_id = lr0.ah_id
+        if (ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash:
             cid = len(self.ah_id_and_lookahead_to_cid_hash)
-            self.ah_id_and_lookahead_to_cid_hash[(lr0.ah_id, lookahead)] = cid
-            self.cid_to_ah_id_and_lookahead_list.append((lr0.ah_id, lookahead))
+            self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)] = cid
+            self.cid_to_ah_id_and_lookahead_list.append((ah_id, lookahead))
         else:
-            cid = self.ah_id_and_lookahead_to_cid_hash[(lr0.ah_id, lookahead)]
+            cid = self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)]
         self.i1_id_to_cid_hash.append(cid)
 
         # 添加 lookahead 为空的 cid
-        if (lr0.ah_id, None) not in self.ah_id_and_lookahead_to_cid_hash:
+        if (ah_id, None) not in self.ah_id_and_lookahead_to_cid_hash:
             cid = len(self.ah_id_and_lookahead_to_cid_hash)
-            self.ah_id_and_lookahead_to_cid_hash[(lr0.ah_id, None)] = cid
-            self.cid_to_ah_id_and_lookahead_list.append((lr0.ah_id, None))
+            self.ah_id_and_lookahead_to_cid_hash[(ah_id, None)] = cid
+            self.cid_to_ah_id_and_lookahead_list.append((ah_id, None))
         else:
-            cid = self.ah_id_and_lookahead_to_cid_hash[(lr0.ah_id, None)]
-        self.ah_id_no_lookahead_to_cid_hash[lr0.ah_id] = cid
+            cid = self.ah_id_and_lookahead_to_cid_hash[(ah_id, None)]
+        self.ah_id_no_lookahead_to_cid_hash[ah_id] = cid
 
         self.i1_id_to_successor_hash.append((lr0.successor_symbol, successor_item1))
         return i1_id
@@ -591,8 +593,7 @@ class ParserLALR1(ParserBase):
                 visited_ah_id_set.add(ah_id)
 
             for lr0_id in lr0_id_set:
-                lr0 = self.lr0_list[lr0_id]
-                lr1_id_set.add(self._create_item1(lr0, lookahead))
+                lr1_id_set.add(self._create_item1(self.lr0_list[lr0_id], lookahead))
         return lr1_id_set
 
     def bfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
@@ -737,7 +738,7 @@ class ParserLALR1(ParserBase):
 
         generated_i1_id_set = {i1_id for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is not None}
         inherit_lr0_id_set = {self.lr1_id_to_lr0_id_hash[i1_id]
-                             for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is None}
+                              for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is None}
 
         return generated_i1_id_set, inherit_lr0_id_set
 
