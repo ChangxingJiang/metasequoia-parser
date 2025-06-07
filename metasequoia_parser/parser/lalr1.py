@@ -570,8 +570,8 @@ class ParserLALR1(ParserBase):
         for lr1_id in core_tuple:
             cid = self.i1_id_to_cid_hash[lr1_id]
             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-            lr1_id_set |= self.cal_generated_i1_id_set_by_ah_id(ah_id)
-            i0_id_set = self.cal_inherit_i0_id_set_by_ah_id(ah_id)
+            sub_lr1_id_set, i0_id_set = self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)
+            lr1_id_set |= sub_lr1_id_set
             for i0_id in i0_id_set:
                 item0 = self.i0_id_to_item0_hash[i0_id]
                 lr1_id_set.add(self._create_item1(item0, lookahead))
@@ -611,9 +611,7 @@ class ParserLALR1(ParserBase):
         # 广度优先搜索所有的等价项目组
         while queue:
             # 计算单层的等价 LR(1) 项目
-            cid = queue.popleft()
-            ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]  # TODO 临时调整位置，待后续移回
-            sub_i1_id_set = self.compute_single_level_lr1_closure(ah_id, lookahead)
+            sub_i1_id_set = self.compute_single_level_lr1_closure(queue.popleft())
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
             i1_id_set |= sub_i1_id_set
@@ -629,7 +627,7 @@ class ParserLALR1(ParserBase):
         return i1_id_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, ah_id: int, lookahead: Optional[int]) -> Set[int]:
+    def compute_single_level_lr1_closure(self, cid) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
@@ -644,6 +642,8 @@ class ParserLALR1(ParserBase):
         Set[int]
             等价 LR(1) 项目的集合
         """
+        ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
+
         # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
         if ah_id == 0:
             return set()
@@ -694,32 +694,6 @@ class ParserLALR1(ParserBase):
         return sub_item_set
 
     @lru_cache(maxsize=None)
-    def cal_generated_i1_id_set_by_ah_id(self, ah_id: int) -> Set[int]:
-        # pylint: disable=R0912
-        # pylint: disable=R0914
-        """根据 after_handle，计算其对应的所有自生后继型 LR(1) 项目
-
-        Returns
-        -------
-        List[int]
-            项目集闭包中包含的项目列表
-        """
-        return self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)[0]
-
-    @lru_cache(maxsize=None)
-    def cal_inherit_i0_id_set_by_ah_id(self, ah_id: int) -> Set[int]:
-        # pylint: disable=R0912
-        # pylint: disable=R0914
-        """根据 after_handle，计算其对应的所有继承后继型 LR(0) 项目
-
-        Returns
-        -------
-        List[int]
-            项目集闭包中包含的项目列表
-        """
-        return self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)[1]
-
-    @lru_cache(maxsize=None)
     def cal_generated_and_inherit_i1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
         # 初始化广度优先搜索的第 1 批节点
         cid = self.ah_id_no_lookahead_to_cid_hash[ah_id]
@@ -729,11 +703,8 @@ class ParserLALR1(ParserBase):
         # 广度优先搜索所有的等价项目组
         i1_id_set = set()
         while queue:
-            cid = queue.popleft()
-            ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-
             # 计算单层的等价 LR(1) 项目
-            sub_i1_id_set = self.compute_single_level_lr1_closure(ah_id, lookahead)
+            sub_i1_id_set = self.compute_single_level_lr1_closure(queue.popleft())
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
             i1_id_set |= sub_i1_id_set
