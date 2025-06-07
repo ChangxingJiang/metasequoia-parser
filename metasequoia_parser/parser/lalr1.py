@@ -122,6 +122,7 @@ class ParserLALR1(ParserBase):
         self.cal_all_item0_list()
         LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.i0_id_to_item0_hash)})")
 
+        # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
         self.symbol_to_start_item_list_hash = self.cal_symbol_to_start_item_list_hash()
@@ -589,45 +590,51 @@ class ParserLALR1(ParserBase):
         after_handle = self.ah_id_to_after_handle_hash[ah_id]
         len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
 
-        # 如果开头符号是终结符，则不存在等价项目
-        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+        # 获取当前句柄之后的第 1 个符号
         first_symbol = after_handle[0]
+
+        # 如果当前句柄之后的第 1 个符号是终结符，则不存在等价的 LR(1) 项目，直接返回空集合
+        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
         if first_symbol < n_terminal:
             return set()
 
         sub_item_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
 
         # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
-        for item0 in self.symbol_to_start_item_list_hash[first_symbol]:
-            # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
-            i = 1
-            is_stop = False  # 是否已经找到不能匹配 %empty 的非终结符或终结符
-            while i < len_after_handle:  # 向后逐个遍历符号，寻找展望符
-                next_symbol = after_handle[i]
+        # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
+        i = 1
+        is_stop = False  # 是否已经找到不能匹配 %empty 的非终结符或终结符
+        while i < len_after_handle:  # 向后逐个遍历符号，寻找展望符
+            next_symbol = after_handle[i]
 
-                # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
-                # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-                if next_symbol < n_terminal:
-                    sub_item_set.add(self._create_item1(item0, next_symbol))  # 自生后继符
-                    is_stop = True
-                    break
+            # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
+            # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
+            if next_symbol < n_terminal:
+                sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, next_symbol)  # 自生后继符
+                is_stop = True
+                break
 
-                # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
-                for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                    sub_item_set.add(self._create_item1(item0, start_terminal))  # 自生后继符
+            # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
+            for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
+                sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, start_terminal)  # 自生后继符
 
-                # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
-                if not self.grammar.is_maybe_empty(next_symbol):
-                    is_stop = True
-                    break
+            # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
+            if not self.grammar.is_maybe_empty(next_symbol):
+                is_stop = True
+                break
 
-                i += 1
+            i += 1
 
-            # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
-            if is_stop is False:
-                sub_item_set.add(self._create_item1(item0, lookahead))  # 继承后继符
+        # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
+        if is_stop is False:
+            sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, lookahead)  # 继承后继符
 
         return sub_item_set
+
+    @lru_cache(maxsize=None)
+    def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
+        """生成以非终结符 symbol 的所有初始项目为 LR(0) 项目，以 lookahead 为展望符的所有 LR(1) 项目的集合"""
+        return {self._create_item1(item0, lookahead) for item0 in self.symbol_to_start_item_list_hash[symbol]}
 
     def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
