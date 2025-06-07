@@ -494,34 +494,7 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             # 广度优先搜索，根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
-            # if core_tuple == (19762, 19769, 19778):
-            #     debug = True
-            # else:
-            #     debug = False
-            # other_i1_id_set = self.new_closure_lr1(core_tuple, debug)
-            other_i1_id_set = self.bfs_closure_item1(core_tuple)
-            # if other_i1_id_set != self.bfs_closure_item1(core_tuple, debug):
-            #     if debug:
-            #         print(f"【DIFF】core_tuple={core_tuple}")
-            #         print(list(sorted(other_i1_id_set)))
-            #         print(list(sorted(self.bfs_closure_item1(core_tuple))))
-            #         for i1_id in core_tuple:
-            #             cid = self.i1_id_to_cid_hash[i1_id]
-            #             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-            #             after_handle = self.ah_id_to_after_handle_hash[ah_id]
-            #             print(f"【DIFF】参数：{after_handle}, {lookahead}")
-            #
-            #         for i1_id in self.bfs_closure_item1(core_tuple) - other_i1_id_set:
-            #             cid = self.i1_id_to_cid_hash[i1_id]
-            #             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-            #             after_handle = self.ah_id_to_after_handle_hash[ah_id]
-            #             print(f"【DIFF】（缺少）{after_handle}, {lookahead}")
-            #
-            #         for i1_id in other_i1_id_set - self.bfs_closure_item1(core_tuple):
-            #             cid = self.i1_id_to_cid_hash[i1_id]
-            #             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-            #             after_handle = self.ah_id_to_after_handle_hash[ah_id]
-            #             print(f"【DIFF】（多出）{after_handle}, {lookahead}")
+            other_i1_id_set = self.new_closure_lr1(core_tuple)
 
             # 构造项目集闭包并添加到结果集中
             self.sid_to_other_i1_id_set_hash.append(other_i1_id_set)
@@ -600,146 +573,12 @@ class ParserLALR1(ParserBase):
         for lr1_id in core_tuple:
             cid = self.i1_id_to_cid_hash[lr1_id]
             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-            after_handle = self.ah_id_to_after_handle_hash[ah_id]
-
-            # 合并 after_handle 和展望符，此时最后一个字符一定是终结符
-            assert self.grammar.is_terminal(lookahead), (f"展望符不是终结符: lookahead={lookahead}, "
-                                                         f"after_hande={after_handle}")
-            merge_after_handle = list(after_handle) + [lookahead]
-
-            if debug:
-                print(f"[new_closure_lr1] ------------------------------------------------------")
-                print(f"[new_closure_lr1] after_handle={after_handle}, lookahead={lookahead}")
-
-            waiting_lr0_id_set = set()
-            for i, symbol in enumerate(merge_after_handle):
-                if debug:
-                    print(f"[new_closure_lr1] "
-                          f"symbol: {symbol}, "
-                          f"is_terminal={self.grammar.is_terminal(symbol)}, "
-                          f"is_maybe_empty={self.grammar.is_maybe_empty(symbol)}")
-                # 如果当前符号是终结符，则将等待集合中的元素与该终结符构造继承后继等价项，然后结束符号项目集闭包
-                if self.grammar.is_terminal(symbol):
-                    for lr0_id in waiting_lr0_id_set:
-                        # item0 = self.i0_id_to_item0_hash[lr0_id]
-                        # if debug:
-                        #     print(
-                        #         f"[new_closure_lr1] 来源: {item0.after_handle}, {symbol} (等待集合与当前终结符 {symbol})")
-                        lr1_id_set.add(self._create_item1(self.i0_id_to_item0_hash[lr0_id], symbol))
-                    break
-
-                # 如果当前符号是非终结符
-                # 添加当前非终结符的所有自生后继符等价项
-                lr1_id_set |= self.bfs_closure_lr0(symbol)
-                if debug:
-                    for lr1_id in self.bfs_closure_lr0(symbol):
-                        cid = self.i1_id_to_cid_hash[lr1_id]
-                        ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-                        after_handle = self.ah_id_to_after_handle_hash[ah_id]
-                        print(f"[new_closure_lr1] 来源: {after_handle}, {lookahead} (符号 {symbol} 的自生后继符等价符)")
-
-                # 将等待集合中的所有元素与当前非终结符的所有可能开头终结符构造继承后继等价项
-                for lr0_id in waiting_lr0_id_set:
-                    for start_terminal in self.nonterminal_all_start_terminal[symbol]:
-                        if debug:
-                            item0 = self.i0_id_to_item0_hash[lr0_id]
-                            print(
-                                f"[new_closure_lr1] 来源: {item0.after_handle}, {start_terminal} (等待集合与当前终结符 {symbol} 的开头终结符)")
-
-                        lr1_id_set.add(self._create_item1(self.i0_id_to_item0_hash[lr0_id], start_terminal))
-
-                # 如果当前非终结符可匹配空（%empty）：
-                # 将当前非终结符的所有继承后继符等价项添加到等待集合
-                waiting_lr0_id_set |= self.cal_all_level_inherited_lr0_by_symbol(symbol)
-                if debug:
-                    print(f"[new_closure_lr1]"
-                          f" waiting_lr0_id_set: {[self.i0_id_to_item0_hash[lr0_id] for lr0_id in waiting_lr0_id_set]}")
-                    # print(f"[new_closure_lr1]"
-                    #       f" lr1_id_set: {[self.ah_id_to_after_handle_hash[[0]] for lr1_id in lr1_id_set]}")
-                #     new_lr0_id_set = self.cal_all_level_inherited_lr0_by_symbol(symbol)
-                #     for lr0_id in new_lr0_id_set:
-                #         item0 = self.i0_id_to_item0_hash[lr0_id]
-                #         print(lr0_id, item0.nonterminal_id, ">", item0.before_handle, "·", item0.after_handle)
-                # 如果当前非终结符不可匹配空（%empty）：
-                if not self.grammar.is_maybe_empty(symbol):
-                    assert i + 1 < len(merge_after_handle)
-                    for sub_symbol in merge_after_handle[i + 1:]:
-                        if self.grammar.is_terminal(sub_symbol):
-                            for lr0_id in waiting_lr0_id_set:
-                                if debug:
-                                    item0 = self.i0_id_to_item0_hash[lr0_id]
-                                    print(
-                                        f"[new_closure_lr1] 来源: {item0.after_handle}, {sub_symbol} (之后的终结符)")
-                                lr1_id_set.add(self._create_item1(self.i0_id_to_item0_hash[lr0_id], sub_symbol))
-                            break
-                        else:
-                            for lr0_id in waiting_lr0_id_set:
-                                for start_terminal in self.nonterminal_all_start_terminal[sub_symbol]:
-                                    if debug:
-                                        item0 = self.i0_id_to_item0_hash[lr0_id]
-                                        print(
-                                            f"[new_closure_lr1] 来源: {item0.after_handle}, {start_terminal} (之后的非终结符 {sub_symbol} 开头的终结符)")
-                                    lr1_id_set.add(self._create_item1(self.i0_id_to_item0_hash[lr0_id], start_terminal))
-                            if not self.grammar.is_maybe_empty(sub_symbol):
-                                break
-                            # next_symbol = merge_after_handle[i + 1]
-                            # for lr0_id in waiting_lr0_id_set:
-                            #     lr1_id_set.add(self._create_item1(self.i0_id_to_item0_hash[lr0_id], next_symbol))
-                    break
-
+            lr1_id_set |= self.cal_generated_i1_id_set_by_ah_id(ah_id)
+            i0_id_set = self.cal_inherit_i0_id_set_by_ah_id(ah_id)
+            for i0_id in i0_id_set:
+                item0 = self.i0_id_to_item0_hash[i0_id]
+                lr1_id_set.add(self._create_item1(item0, lookahead))
         return lr1_id_set
-
-    @lru_cache(maxsize=None)
-    def cal_all_level_inherited_lr0_by_symbol(self, symbol: int) -> Set[int]:
-        """根据非终结符，计算所有层级的继承后继型等价 LR(1) 项目对应 LR(0) 项目 ID 的集合"""
-        lr0_id_set = set()
-        for lr0 in self.symbol_to_start_item_list_hash[symbol]:
-            lr0_id_set |= self.cal_all_level_inherited_lr0_by_lr0(lr0.i0_id)
-        return lr0_id_set
-
-    @lru_cache(maxsize=None)
-    def cal_all_level_inherited_lr0_by_lr0(self, lr0_id: int) -> Set[int]:
-        """根据 LR(0) 项目，计算所有层级的继承后继型等价 LR(1) 项目对应 LR(0) 项目 ID 的集合【包含自身】"""
-        visited = {lr0_id}
-        queue = collections.deque([lr0_id])
-        while queue:
-            # 根据 LR(0) 项目，计算单一层级的继承后继型等价 LR(1) 项目对应 LR(0) 项目的集合
-            sub_lr0_list = self.cal_single_level_inherited_lr0_by_lr0(queue.popleft())
-            # print(f"[cal_all_level_inherited_lr0_by_lr0] {queue}: {sub_lr0_list}")
-
-            for lr0 in sub_lr0_list:
-                if lr0.i0_id not in visited:
-                    visited.add(lr0.i0_id)
-                    queue.append(lr0.i0_id)
-
-        return visited
-
-    @lru_cache(maxsize=None)
-    def cal_single_level_inherited_lr0_by_lr0(self, lr0_id: int) -> List[Item0]:
-        """根据 LR(0) 项目，计算单一层级的继承后继型等价 LR(1) 项目对应 LR(0) 项目的集合【可能包含自身】"""
-        lr0 = self.i0_id_to_item0_hash[lr0_id]
-        after_handle = lr0.after_handle
-
-        # print(f"[cal_single_level_inherited_lr0_by_lr0] {lr0_id}: {lr0}")
-
-        if not after_handle:
-            return []
-
-        # 获取当前句柄之后的第 1 个符号
-        first_symbol = after_handle[0]
-
-        # 如果当前句柄之后的第 1 个符号是终结符，则不存在等价的 LR(1) 项目
-        if first_symbol < self.grammar.n_terminal:
-            return []
-
-        # 如果句柄之后的任何符号是终结符或不允许为空，则不存在等价的继承后继型等价 LR(1) 项目
-        after_handle = lr0.after_handle
-        for sub_symbol in after_handle[1:]:
-            if self.grammar.is_terminal(sub_symbol):
-                return []
-            if not self.grammar.is_maybe_empty(sub_symbol):
-                return []
-        return self.symbol_to_start_item_list_hash[first_symbol]
 
     def bfs_closure_item1(self, core_tuple: Tuple[int]) -> Set[int]:
         # pylint: disable=R0912
@@ -793,7 +632,7 @@ class ParserLALR1(ParserBase):
         return i1_id_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_lr1_closure(self, ah_id: int, lookahead: int) -> Set[int]:
+    def compute_single_level_lr1_closure(self, ah_id: int, lookahead: Optional[int]) -> Set[int]:
         """计算 item1 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
@@ -858,24 +697,37 @@ class ParserLALR1(ParserBase):
         return sub_item_set
 
     @lru_cache(maxsize=None)
-    def bfs_closure_lr0(self, symbol: int) -> Set[int]:
+    def cal_generated_i1_id_set_by_ah_id(self, ah_id: int) -> Set[int]:
         # pylint: disable=R0912
         # pylint: disable=R0914
-        """根据 LR(0) 项目，计算其对应的所有自生后继型 LR(1) 项目
+        """根据 after_handle，计算其对应的所有自生后继型 LR(1) 项目
 
         Returns
         -------
         List[int]
             项目集闭包中包含的项目列表
         """
+        return self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)[0]
+
+    @lru_cache(maxsize=None)
+    def cal_inherit_i0_id_set_by_ah_id(self, ah_id: int) -> Set[int]:
+        # pylint: disable=R0912
+        # pylint: disable=R0914
+        """根据 after_handle，计算其对应的所有继承后继型 LR(0) 项目
+
+        Returns
+        -------
+        List[int]
+            项目集闭包中包含的项目列表
+        """
+        return self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)[1]
+
+    @lru_cache(maxsize=None)
+    def cal_generated_and_inherit_i1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
         # print(f"[bfs_closure_lr0] symbol={symbol}")
         # 初始化广度优先搜索的第 1 批节点
-        visited_cid_set = set()
-        queue = collections.deque()
-        for lr0 in self.symbol_to_start_item_list_hash[symbol]:
-            ah_id = self.after_handle_to_ah_id_hash[lr0.after_handle]
-            queue.append((ah_id, None))
-            visited_cid_set.add((ah_id, None))
+        visited_cid_set = {(ah_id, None)}
+        queue = collections.deque([(ah_id, None)])
 
         # 广度优先搜索所有的等价项目组
         i1_id_set = set()
@@ -884,21 +736,9 @@ class ParserLALR1(ParserBase):
 
             # 计算单层的等价 LR(1) 项目
             sub_i1_id_set = self.compute_single_level_lr1_closure(ah_id, lookahead)
-            # if symbol == 113:
-            #     after_handle = self.ah_id_to_after_handle_hash[ah_id]
-            #     print(f"[bfs_closure_lr0] compute_single_level_lr1_closure_2: {ah_id}{after_handle}, {lookahead} -> {sub_i1_id_set}")
 
             # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            for sub_i1_id in sub_i1_id_set:
-                sub_lookahead = self.i1_id_to_lookahead_hash[sub_i1_id]
-                if symbol == 113:
-                    after_handle = self.ah_id_to_after_handle_hash[ah_id]
-                    new_cid = self.i1_id_to_cid_hash[sub_i1_id]
-                    sub_ah_id, _ = self.cid_to_ah_id_and_lookahead_list[new_cid]
-                    sub_after_handle = self.ah_id_to_after_handle_hash[sub_ah_id]
-                    print(f"[bfs_closure_lr0] {after_handle}, {lookahead} > {sub_after_handle}, {sub_lookahead}")
-                if sub_lookahead is not None:
-                    i1_id_set.add(sub_i1_id)
+            i1_id_set |= sub_i1_id_set
 
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
@@ -908,8 +748,12 @@ class ParserLALR1(ParserBase):
                 if (ah_id, lookahead) not in visited_cid_set:
                     visited_cid_set.add((ah_id, lookahead))
                     queue.append((ah_id, lookahead))
-        # print(f"bfs_closure_lr0: {symbol} -> {i1_id_set}")
-        return i1_id_set
+
+        generated_i1_id_set = {i1_id for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is not None}
+        inherit_i0_id_set = {self.i1_id_to_i0_id_hash[i1_id]
+                             for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is None}
+
+        return generated_i1_id_set, inherit_i0_id_set
 
     @lru_cache(maxsize=None)
     def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
