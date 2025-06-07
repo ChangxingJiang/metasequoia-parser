@@ -40,7 +40,7 @@ class Item0:
     # -------------------- 性能设计 --------------------
     # Item0 项目集唯一 ID
     # 通过在构造时添加 Item0 项目集的唯一 ID，从而将 Item0 项目集的哈希计算优化为直接获取唯一 ID
-    i0_id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
+    id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
     # -------------------- 项目的基本信息（节点属性）--------------------
     nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
@@ -107,7 +107,7 @@ class ParserLALR1(ParserBase):
             self.profiler.enable()
 
         # LR(0) 项目 ID 到 LR(0) 项目对象的映射
-        self.i0_id_to_lr0_hash: List[Item0] = []
+        self.lr0_list: List[Item0] = []
 
         # LR(1) 项目核心元组到 LR(1) 项目 ID 的映射
         # - LR(1) 项目核心元组包括指向的 LR(0) 项目 ID 和展望符
@@ -118,7 +118,7 @@ class ParserLALR1(ParserBase):
         self.after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = {}  # 句柄之后的符号列表到唯一 ID 的映射
         self.ah_id_to_after_handle_hash: List[Tuple[int, ...]] = []  # 唯一 ID 到句柄之后的符号列表的映射
         self.cal_all_lr0_list()
-        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.i0_id_to_lr0_hash)})")
+        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.lr0_list)})")
 
         # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
@@ -129,12 +129,12 @@ class ParserLALR1(ParserBase):
 
         # 获取入口、接受 LR(0) 项目 ID
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 开始")
-        self.init_i0_id = self.get_init_i0_id()
-        self.accept_i0_id = self.get_accept_i0_id()
+        self.init_lr0_id = self.get_init_lr0_id()
+        self.accept_lr0_id = self.get_accept_lr0_id()
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
 
         # 计算所有非终结符名称的列表
-        nonterminal_name_list = list({lr0.nonterminal_id for lr0 in self.i0_id_to_lr0_hash})
+        nonterminal_name_list = list({lr0.nonterminal_id for lr0 in self.lr0_list})
 
         # 计算每个非终结符中，所有可能的开头终结符
         self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_name_list)
@@ -147,7 +147,7 @@ class ParserLALR1(ParserBase):
         self.sid_to_other_i1_id_set_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集所有元素的映射
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
-        self.i1_id_to_i0_id_hash: List[int] = []
+        self.lr1_id_to_lr0_id_hash: List[int] = []
 
         # 查询组合 ID 到句柄之后的符号列表的唯一 ID 与展望符的组合的唯一 ID 的映射
         self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
@@ -197,7 +197,7 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
-        accept_i1_id = self.item1_core_to_i1_id_hash[(self.accept_i0_id, self.grammar.end_terminal)]
+        accept_i1_id = self.item1_core_to_i1_id_hash[(self.accept_lr0_id, self.grammar.end_terminal)]
         self.init_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(self.init_i1_id,)]]
         self.accept_status_id = self.sid_to_status_hash[self.core_tuple_to_sid_hash[(accept_i1_id,)]]
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
@@ -239,7 +239,7 @@ class ParserLALR1(ParserBase):
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         grammar: Grammar = self.grammar
-        i0_id_to_lr0_hash: List[Item0] = self.i0_id_to_lr0_hash
+        lr0_list: List[Item0] = self.lr0_list
         after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = self.after_handle_to_ah_id_hash
         ah_id_to_after_handle_hash: List[Tuple[int, ...]] = self.ah_id_to_after_handle_hash
 
@@ -258,9 +258,9 @@ class ParserLALR1(ParserBase):
 
             # 如果为 %empty，则仅构造一个规约项目
             if len(product.symbol_id_list) == 0:
-                i0_id = len(i0_id_to_lr0_hash)
-                i0_id_to_lr0_hash.append(Item0(
-                    i0_id=i0_id,
+                lr0_id = len(lr0_list)
+                lr0_list.append(Item0(
+                    id=lr0_id,
                     nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(),
                     ah_id=0,
@@ -276,9 +276,9 @@ class ParserLALR1(ParserBase):
                 continue
 
             # 添加句柄在结束位置（最右侧）的项目（规约项目）
-            i0_id = len(i0_id_to_lr0_hash)
+            lr0_id = len(lr0_list)
             last_item = Item0(
-                i0_id=i0_id,
+                id=lr0_id,
                 nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(product.symbol_id_list),
                 ah_id=0,
@@ -291,11 +291,11 @@ class ParserLALR1(ParserBase):
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
             )
-            i0_id_to_lr0_hash.append(last_item)
+            lr0_list.append(last_item)
 
             # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
             for i in range(len(product.symbol_id_list) - 1, 0, -1):
-                i0_id = len(i0_id_to_lr0_hash)
+                lr0_id = len(lr0_list)
                 after_handle = tuple(product.symbol_id_list[i:])
                 if after_handle not in after_handle_to_ah_id_hash:
                     ah_id = len(ah_id_to_after_handle_hash)
@@ -304,7 +304,7 @@ class ParserLALR1(ParserBase):
                 else:
                     ah_id = after_handle_to_ah_id_hash[after_handle]
                 now_item = Item0(
-                    i0_id=i0_id,
+                    id=lr0_id,
                     nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(product.symbol_id_list[:i]),
                     ah_id=ah_id,
@@ -317,11 +317,11 @@ class ParserLALR1(ParserBase):
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
                 )
-                i0_id_to_lr0_hash.append(now_item)
+                lr0_list.append(now_item)
                 last_item = now_item
 
             # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
-            i0_id = len(i0_id_to_lr0_hash)
+            lr0_id = len(lr0_list)
             after_handle = tuple(product.symbol_id_list)
             if after_handle not in after_handle_to_ah_id_hash:
                 ah_id = len(ah_id_to_after_handle_hash)
@@ -329,8 +329,8 @@ class ParserLALR1(ParserBase):
                 ah_id_to_after_handle_hash.append(after_handle)
             else:
                 ah_id = after_handle_to_ah_id_hash[after_handle]
-            i0_id_to_lr0_hash.append(Item0(
-                i0_id=i0_id,
+            lr0_list.append(Item0(
+                id=lr0_id,
                 nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(),
                 ah_id=ah_id,
@@ -352,31 +352,31 @@ class ParserLALR1(ParserBase):
             键为非终结符名称，值为非终结符对应项目的列表（泛型 T 为 ItemBase 的子类）
         """
         symbol_to_start_item_list_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
-        for lr0 in self.i0_id_to_lr0_hash:
+        for lr0 in self.lr0_list:
             if not lr0.before_handle:
                 symbol_to_start_item_list_hash[lr0.nonterminal_id].append(lr0)
         return symbol_to_start_item_list_hash
 
-    def get_init_i0_id(self) -> int:
+    def get_init_lr0_id(self) -> int:
         """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
-        for lr0 in self.i0_id_to_lr0_hash:
+        for lr0 in self.lr0_list:
             if lr0.is_init():
-                return lr0.i0_id
+                return lr0.id
         raise KeyError("未从项目列表中获取到 INIT 项目")
 
-    def get_accept_i0_id(self) -> int:
+    def get_accept_lr0_id(self) -> int:
         """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
-        for lr0 in self.i0_id_to_lr0_hash:
+        for lr0 in self.lr0_list:
             if lr0.is_accept():
-                return lr0.i0_id
+                return lr0.id
         raise KeyError("未从项目列表中获取到 ACCEPT 项目")
 
     def _create_item1(self, lr0: Item0, lookahead: int) -> int:
         """如果 item1 不存在则构造 item1，返回直接返回已构造的 item1"""
 
         # 如果 item1 已经存在则返回已存在 item1
-        if (lr0.i0_id, lookahead) in self.item1_core_to_i1_id_hash:
-            return self.item1_core_to_i1_id_hash[(lr0.i0_id, lookahead)]
+        if (lr0.id, lookahead) in self.item1_core_to_i1_id_hash:
+            return self.item1_core_to_i1_id_hash[(lr0.id, lookahead)]
 
         if lr0.successor_item is not None:
             successor_item1 = self._create_item1(lr0.successor_item, lookahead)
@@ -384,8 +384,8 @@ class ParserLALR1(ParserBase):
             successor_item1 = None
 
         i1_id = len(self.item1_core_to_i1_id_hash)
-        self.item1_core_to_i1_id_hash[(lr0.i0_id, lookahead)] = i1_id
-        self.i1_id_to_i0_id_hash.append(lr0.i0_id)
+        self.item1_core_to_i1_id_hash[(lr0.id, lookahead)] = i1_id
+        self.lr1_id_to_lr0_id_hash.append(lr0.id)
         self.i1_id_to_lookahead_hash.append(lookahead)
 
         if (lr0.ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash:
@@ -470,7 +470,7 @@ class ParserLALR1(ParserBase):
         i1_id_to_successor_hash = self.i1_id_to_successor_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        self.init_i1_id = self._create_item1(self.i0_id_to_lr0_hash[self.init_i0_id], self.grammar.end_terminal)
+        self.init_i1_id = self._create_item1(self.lr0_list[self.init_lr0_id], self.grammar.end_terminal)
         init_core_tuple = (self.init_i1_id,)
         core_tuple_to_sid_hash[init_core_tuple] = 0
         sid_to_core_tuple_hash.append(init_core_tuple)
@@ -583,15 +583,15 @@ class ParserLALR1(ParserBase):
             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
             if ah_id == 0:
                 continue
-            sub_lr1_id_set, i0_id_set = self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)
+            sub_lr1_id_set, lr0_id_set = self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)
 
             # 对于自发后继型 LR(1) 项目，每个 ah_id 只需要处理一次
             if ah_id not in visited_ah_id_set:
                 lr1_id_set |= sub_lr1_id_set
                 visited_ah_id_set.add(ah_id)
 
-            for i0_id in i0_id_set:
-                lr0 = self.i0_id_to_lr0_hash[i0_id]
+            for lr0_id in lr0_id_set:
+                lr0 = self.lr0_list[lr0_id]
                 lr1_id_set.add(self._create_item1(lr0, lookahead))
         return lr1_id_set
 
@@ -736,10 +736,10 @@ class ParserLALR1(ParserBase):
                     queue.append(new_cid)
 
         generated_i1_id_set = {i1_id for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is not None}
-        inherit_i0_id_set = {self.i1_id_to_i0_id_hash[i1_id]
+        inherit_lr0_id_set = {self.lr1_id_to_lr0_id_hash[i1_id]
                              for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is None}
 
-        return generated_i1_id_set, inherit_i0_id_set
+        return generated_i1_id_set, inherit_lr0_id_set
 
     @lru_cache(maxsize=None)
     def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
@@ -760,7 +760,7 @@ class ParserLALR1(ParserBase):
         concentric_hash = collections.defaultdict(list)
         for sid in self.sid_set:
             core_tuple = sid_to_core_tuple_hash[sid]
-            centric_tuple = tuple(sorted(set(self.i1_id_to_i0_id_hash[i1_id] for i1_id in core_tuple)))
+            centric_tuple = tuple(sorted(set(self.lr1_id_to_lr0_id_hash[i1_id] for i1_id in core_tuple)))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(sid)
         return concentric_hash
@@ -848,9 +848,9 @@ class ParserLALR1(ParserBase):
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for i1_id in chain(self.sid_to_core_tuple_hash[sid1], self.sid_to_other_i1_id_set_hash[sid1]):
-                i0_id = self.i1_id_to_i0_id_hash[i1_id]
+                lr0_id = self.lr1_id_to_lr0_id_hash[i1_id]
                 lookahead = self.i1_id_to_lookahead_hash[i1_id]
-                lr0 = self.i0_id_to_lr0_hash[i0_id]
+                lr0 = self.lr0_list[lr0_id]
                 if lr0.successor_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                                  n_param=len(lr0.before_handle),
