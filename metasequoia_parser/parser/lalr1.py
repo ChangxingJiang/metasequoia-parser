@@ -155,6 +155,7 @@ class ParserLALR1(ParserBase):
 
         # LR(1) 项目 ID 到组合 ID 的映射
         self.i1_id_to_cid_hash: List[int] = []
+        self.ah_id_no_lookahead_to_cid_hash: Dict[int, int] = {}
 
         # LR(1) 项目 ID 到展望符的映射
         self.i1_id_to_lookahead_hash: List[int] = []
@@ -164,19 +165,6 @@ class ParserLALR1(ParserBase):
 
         # 广度优先搜索，查找 LR(1) 项目集及之间的关联关系
         self.init_i1_id: Optional[int] = None
-
-        # 【临时调试】
-        # print("调试结果:",self.cal_all_level_inherited_lr0_by_symbol(161))
-        # print("调试结果:", self.cal_single_level_inherited_lr0_by_lr0(518))
-        # print("调试结果:", self.cal_single_level_inherited_lr0_by_lr0(519))
-        # for lr1_id in self.bfs_closure_lr0(113):
-        #     cid = self.i1_id_to_cid_hash[lr1_id]
-        #     ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-        #     after_handle = self.ah_id_to_after_handle_hash[ah_id]
-        #     print(f"[new_closure_lr1] 来源: {after_handle}, {lookahead} (符号 {113} 的自生后继符等价符)")
-        # (61, 161, 13), 36
-        # (124,), 36
-        # return
 
         self.bfs_search_item1_set()
 
@@ -408,6 +396,15 @@ class ParserLALR1(ParserBase):
             cid = self.ah_id_and_lookahead_to_cid_hash[(item0.ah_id, lookahead)]
         self.i1_id_to_cid_hash.append(cid)
 
+        # 添加 lookahead 为空的 cid
+        if (item0.ah_id, None) not in self.ah_id_and_lookahead_to_cid_hash:
+            cid = len(self.ah_id_and_lookahead_to_cid_hash)
+            self.ah_id_and_lookahead_to_cid_hash[(item0.ah_id, None)] = cid
+            self.cid_to_ah_id_and_lookahead_list.append((item0.ah_id, None))
+        else:
+            cid = self.ah_id_and_lookahead_to_cid_hash[(item0.ah_id, None)]
+        self.ah_id_no_lookahead_to_cid_hash[item0.ah_id] = cid
+
         self.i1_id_to_successor_hash.append((item0.successor_symbol, successor_item1))
         return i1_id
 
@@ -524,7 +521,7 @@ class ParserLALR1(ParserBase):
                     queue.append(successor_sid1)
                     visited.add(successor_sid1)
 
-    def new_closure_lr1(self, core_tuple: Tuple[int], debug: bool = False) -> Set[int]:
+    def new_closure_lr1(self, core_tuple: Tuple[int]) -> Set[int]:
         """新版项目集闭包计算方法
 
         【样例 1】S->A·B,c（其中 B 不可为空）
@@ -724,15 +721,16 @@ class ParserLALR1(ParserBase):
 
     @lru_cache(maxsize=None)
     def cal_generated_and_inherit_i1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
-        # print(f"[bfs_closure_lr0] symbol={symbol}")
         # 初始化广度优先搜索的第 1 批节点
-        visited_cid_set = {(ah_id, None)}
-        queue = collections.deque([(ah_id, None)])
+        cid = self.ah_id_no_lookahead_to_cid_hash[ah_id]
+        visited_cid_set = {cid}
+        queue = collections.deque([cid])
 
         # 广度优先搜索所有的等价项目组
         i1_id_set = set()
         while queue:
-            ah_id, lookahead = queue.popleft()
+            cid = queue.popleft()
+            ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
 
             # 计算单层的等价 LR(1) 项目
             sub_i1_id_set = self.compute_single_level_lr1_closure(ah_id, lookahead)
@@ -744,10 +742,9 @@ class ParserLALR1(ParserBase):
             # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
             for i1_id in sub_i1_id_set:
                 new_cid = self.i1_id_to_cid_hash[i1_id]
-                ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[new_cid]
-                if (ah_id, lookahead) not in visited_cid_set:
-                    visited_cid_set.add((ah_id, lookahead))
-                    queue.append((ah_id, lookahead))
+                if new_cid not in visited_cid_set:
+                    visited_cid_set.add(new_cid)
+                    queue.append(new_cid)
 
         generated_i1_id_set = {i1_id for i1_id in i1_id_set if self.i1_id_to_lookahead_hash[i1_id] is not None}
         inherit_i0_id_set = {self.i1_id_to_i0_id_hash[i1_id]
