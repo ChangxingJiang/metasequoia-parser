@@ -567,11 +567,29 @@ class ParserLALR1(ParserBase):
         提前计算非终结符的所有可能的开头终结符
         """
         lr1_id_set = set()
+
+        # 【测试工具】打印日志
+        # show_list = []
+        # for lr1_id in core_tuple:
+        #     cid = self.i1_id_to_cid_hash[lr1_id]
+        #     ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
+        #     after_handle = self.ah_id_to_after_handle_hash[ah_id]
+        #     show_list.append("(" + " ".join(str(v) for v in after_handle) + ", " + str(lookahead) + ")")
+        # print("; ".join(show_list))
+
+        visited_ah_id_set = set()  # 已经处理的 ah_id 的集合
         for lr1_id in core_tuple:
             cid = self.i1_id_to_cid_hash[lr1_id]
             ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
+            if ah_id == 0:
+                continue
             sub_lr1_id_set, i0_id_set = self.cal_generated_and_inherit_i1_id_set_by_ah_id(ah_id)
-            lr1_id_set |= sub_lr1_id_set
+
+            # 对于自发后继型 LR(1) 项目，每个 ah_id 只需要处理一次
+            if ah_id not in visited_ah_id_set:
+                lr1_id_set |= sub_lr1_id_set
+                visited_ah_id_set.add(ah_id)
+
             for i0_id in i0_id_set:
                 item0 = self.i0_id_to_item0_hash[i0_id]
                 lr1_id_set.add(self._create_item1(item0, lookahead))
