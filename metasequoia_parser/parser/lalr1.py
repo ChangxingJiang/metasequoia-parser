@@ -111,7 +111,7 @@ class ParserLALR1(ParserBase):
 
         # LR(1) 项目核心元组到 LR(1) 项目 ID 的映射
         # - LR(1) 项目核心元组包括指向的 LR(0) 项目 ID 和展望符
-        self.lr1_core_to_lr1_id_hash: Dict[Tuple[int, int], int] = {}
+        self.lr1_core_to_lr1_id_hash: Dict[int, int] = {}
 
         # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
         LOGGER.info("[1 / 10] 计算 Item0 对象开始")
@@ -197,7 +197,8 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
-        accept_lr1_id = self.lr1_core_to_lr1_id_hash[(self.accept_lr0_id, self.grammar.end_terminal)]
+        accept_lr1_core = self.accept_lr0_id * (self.grammar.n_terminal + 1) + self.grammar.end_terminal
+        accept_lr1_id = self.lr1_core_to_lr1_id_hash[accept_lr1_core]
         self.init_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(self.init_lr1_id,)]]
         self.accept_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(accept_lr1_id,)]]
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
@@ -373,8 +374,9 @@ class ParserLALR1(ParserBase):
 
     def create_lr1(self, lr0_id: int, lookahead: int) -> int:
         """如果 LR(1) 项目不存在则构造 LR(1) 项目对象，返回直接返回构造的 LR(1) 项目对象的 ID"""
-        if (lr0_id, lookahead) in self.lr1_core_to_lr1_id_hash:
-            return self.lr1_core_to_lr1_id_hash[(lr0_id, lookahead)]
+        lr1_core = lr0_id * (self.grammar.n_terminal + 1) + lookahead
+        if lr1_core in self.lr1_core_to_lr1_id_hash:
+            return self.lr1_core_to_lr1_id_hash[lr1_core]
         lr0 = self.lr0_list[lr0_id]
 
         # 递归计算后继 LR(1) 项目
@@ -385,7 +387,7 @@ class ParserLALR1(ParserBase):
 
         # 初始化 LR(1) 项的基本信息映射
         lr1_id = len(self.lr1_core_to_lr1_id_hash)
-        self.lr1_core_to_lr1_id_hash[(lr0_id, lookahead)] = lr1_id
+        self.lr1_core_to_lr1_id_hash[lr1_core] = lr1_id
         self.lr1_id_to_lr0_id_hash.append(lr0_id)
         self.lr1_id_to_lookahead_hash.append(lookahead)
 
