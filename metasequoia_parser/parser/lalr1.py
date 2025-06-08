@@ -7,7 +7,6 @@ import collections
 import dataclasses
 import enum
 from functools import lru_cache
-import sys
 from itertools import chain
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -494,7 +493,8 @@ class ParserLALR1(ParserBase):
                 LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
                             f"已处理={idx}, "
                             f"队列中={len(queue)}, "
-                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}")
+                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}, "
+                            f"LR(1) 项目集闭包数量={len(self.closure_id_to_closure_core_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
             other_lr1_id_set = self.new_closure_lr1(closure_core)
@@ -772,15 +772,19 @@ class ParserLALR1(ParserBase):
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
-        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
 
         concentric_hash = collections.defaultdict(list)
         for closure_id in self.closure_id_set:
             closure_core = closure_id_to_closure_core_hash[closure_id]
-            centric_tuple = tuple(sorted(set(lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
+            closure_key = self.get_centric_core(closure_core)
             # 根据项目集核心进行聚合
-            concentric_hash[centric_tuple].append(closure_id)
+            concentric_hash[closure_key].append(closure_id)
         return concentric_hash
+
+    def get_centric_core(self, closure_core: Tuple[int, ...]) -> Tuple[int, ...]:
+        """根据 LR(1) 项目集闭包的 LR(1) 项目的元组，计算 LR(1) 项目集闭包用于合并的 LR(0) 项目的元组"""
+        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
+        return tuple(sorted(set(lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
 
     def merge_same_concentric_closure(self) -> None:
         # pylint: disable=R0914
