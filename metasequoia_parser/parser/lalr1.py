@@ -144,7 +144,7 @@ class ParserLALR1(ParserBase):
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
         self.closure_core_to_closure_id_hash: Dict[Tuple[int, ...], int] = {}  # 核心项目到 SID1 的映射
-        self.closure_id_to_closure_core_hash: List[Tuple[int, ...]] = []  # SID1 到 LR(1) 项目集核心元组的映射
+        self.closure_id_to_closure_core_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集核心元组的映射
         self.closure_id_to_other_lr1_id_set_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集所有元素的映射
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
@@ -477,18 +477,17 @@ class ParserLALR1(ParserBase):
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
         closure_core_to_closure_id_hash[init_closure_core] = 0
-        closure_id_to_closure_core_hash.append(init_closure_core)
+        closure_id_to_closure_core_hash.append(set())
         closure_id_to_closure_other_hash.append(set())
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
         visited = {0}
-        queue = collections.deque([0])
+        queue = collections.deque([(0, init_closure_core)])
 
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue:
-            closure_id = queue.popleft()
-            closure_core = closure_id_to_closure_core_hash[closure_id]
+            closure_id, closure_core = queue.popleft()
 
             idx += 1
 
@@ -500,10 +499,11 @@ class ParserLALR1(ParserBase):
                             f"LR(1) 项目集闭包数量={len(self.closure_id_to_closure_core_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
-            closure_other = self.new_closure_lr1(closure_core)
+            closure_other = self.new_closure_lr1(tuple(sorted(closure_core)))
             # print(f"项目集闭包尺寸: {len(closure_core)}, {len(other_lr1_id_set)}({sys.getsizeof(other_lr1_id_set)})")
 
             # 构造项目集闭包并添加到结果集中
+            closure_id_to_closure_core_hash[closure_id] |= set(closure_core)
             closure_id_to_closure_other_hash[closure_id] |= closure_other
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
@@ -519,7 +519,7 @@ class ParserLALR1(ParserBase):
                 if next_closure_core not in closure_core_to_closure_id_hash:
                     next_closure_id = len(closure_core_to_closure_id_hash)
                     closure_core_to_closure_id_hash[next_closure_core] = next_closure_id
-                    closure_id_to_closure_core_hash.append(next_closure_core)
+                    closure_id_to_closure_core_hash.append(set())
                     closure_id_to_closure_other_hash.append(set())
                 else:
                     next_closure_id = closure_core_to_closure_id_hash[next_closure_core]
@@ -529,7 +529,7 @@ class ParserLALR1(ParserBase):
 
                 # 将后继项目集闭包的核心项目元组添加到队列
                 if next_closure_id not in visited:
-                    queue.append(next_closure_id)
+                    queue.append((next_closure_id, next_closure_core))
                     visited.add(next_closure_id)
 
     def new_closure_lr1(self, closure_core: Tuple[int]) -> Set[int]:
