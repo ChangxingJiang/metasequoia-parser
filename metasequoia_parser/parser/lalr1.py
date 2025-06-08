@@ -7,6 +7,7 @@ import collections
 import dataclasses
 import enum
 from functools import lru_cache
+import sys
 from itertools import chain
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
@@ -117,7 +118,9 @@ class ParserLALR1(ParserBase):
         self.after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = {}  # 句柄之后的符号列表到唯一 ID 的映射
         self.ah_id_to_after_handle_hash: List[Tuple[int, ...]] = []  # 唯一 ID 到句柄之后的符号列表的映射
         self.cal_all_lr0_list()
-        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束 (Item0 对象数量 = {len(self.lr0_list)})")
+        LOGGER.info(f"LR(0) 项目数量 = {len(self.lr0_list)}")
+        LOGGER.info(f"句柄之后的符号元组数量 = {len(self.after_handle_to_ah_id_hash)}")
+        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束")
 
         # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
@@ -168,8 +171,9 @@ class ParserLALR1(ParserBase):
         self.bfs_search_all_closure()
 
         self.closure_id_set = set(range(len(self.closure_id_to_closure_core_hash)))  # 有效 SID1 的集合
-        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束 "
-                    f"(搜索后 LR(1) 项目集数量 = {len(self.closure_id_set)})")
+        LOGGER.info(f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
+        LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_set)}")
+        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
         # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
         LOGGER.info("[5 / 10] 计算项目集核心开始")
@@ -478,8 +482,6 @@ class ParserLALR1(ParserBase):
         visited = {0}
         queue = collections.deque([0])
 
-        # tracemalloc.start()
-
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue:
@@ -489,17 +491,14 @@ class ParserLALR1(ParserBase):
             idx += 1
 
             if self.debug is True and idx % 1000 == 0:
-                LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
-                # snapshot = tracemalloc.take_snapshot()
-                # print(f"[Memory] {tracemalloc.get_tracemalloc_memory()}")
-                # top_stats = snapshot.statistics("traceback")
-                # print("[ Top memory consuming lines ]")
-                # for stat in top_stats[:10]:
-                #     print(stat)
-                # exit(1)
+                LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
+                            f"已处理={idx}, "
+                            f"队列中={len(queue)}, "
+                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
             other_lr1_id_set = self.new_closure_lr1(closure_core)
+            # print(f"项目集闭包尺寸: {len(closure_core)}, {len(other_lr1_id_set)}({sys.getsizeof(other_lr1_id_set)})")
 
             # 构造项目集闭包并添加到结果集中
             self.closure_id_to_other_lr1_id_set_hash.append(other_lr1_id_set)
