@@ -644,7 +644,6 @@ class ParserLALR1(ParserBase):
 
         return lr1_id_set
 
-    @lru_cache(maxsize=None)
     def compute_single_level_closure(self, cid: int) -> Set[int]:
         """计算 LR(1) 单层的等价 LR(1) 项目的 ID 的集合
 
@@ -668,7 +667,6 @@ class ParserLALR1(ParserBase):
 
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
         after_handle = self.ah_id_to_after_handle_hash[ah_id]
-        len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
 
         # 获取当前句柄之后的第 1 个符号
         first_symbol = after_handle[0]
@@ -677,6 +675,21 @@ class ParserLALR1(ParserBase):
         # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
         if first_symbol < n_terminal:
             return EMPTY_SET
+
+        lr1_id_set, need_inherit = self.cal_generated_lookahead_set(ah_id)
+
+        if need_inherit is True:
+            return lr1_id_set | {self.create_lr1(lr0_id, lookahead)
+                                 for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[first_symbol]}
+        else:
+            return lr1_id_set
+
+    @lru_cache(maxsize=None)
+    def cal_generated_lookahead_set(self, ah_id: int) -> Tuple[Set[int], bool]:
+        n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
+        after_handle = self.ah_id_to_after_handle_hash[ah_id]
+        len_after_handle = len(after_handle)  # 【性能设计】提前计算需要频繁使用的常量
+        first_symbol = after_handle[0]
 
         lookahead_set = set()  # 后继符的列表
 
@@ -705,16 +718,12 @@ class ParserLALR1(ParserBase):
 
             i += 1
 
-        # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
-        if need_inherit is True:
-            lookahead_set.add(lookahead)  # 继承后继符
-
         lr1_id_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
         for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[first_symbol]:
-            for lookahead in lookahead_set:
-                lr1_id_set.add(self.create_lr1(lr0_id, lookahead))
+            for sub_lookahead in lookahead_set:
+                lr1_id_set.add(self.create_lr1(lr0_id, sub_lookahead))
 
-        return lr1_id_set
+        return lr1_id_set, need_inherit
 
     @lru_cache(maxsize=None)
     def cal_generated_and_inherit_lr1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
