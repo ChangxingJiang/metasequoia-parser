@@ -642,7 +642,7 @@ class ParserLALR1(ParserBase):
         return lr1_id_set
 
     @lru_cache(maxsize=None)
-    def compute_single_level_closure(self, cid) -> Set[int]:
+    def compute_single_level_closure(self, cid: int) -> Set[int]:
         """计算 LR(1) 单层的等价 LR(1) 项目的 ID 的集合
 
         计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
@@ -675,7 +675,7 @@ class ParserLALR1(ParserBase):
         if first_symbol < n_terminal:
             return set()
 
-        lr1_id_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
+        lookahead_list = set()  # 后继符的列表
 
         # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
         # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
@@ -687,13 +687,13 @@ class ParserLALR1(ParserBase):
             # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
             # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
             if next_symbol < n_terminal:
-                lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, next_symbol)  # 自生后继符
+                lookahead_list.add(next_symbol)  # 自生后继符
                 is_stop = True
                 break
 
             # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
             for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, start_terminal)  # 自生后继符
+                lookahead_list.add(start_terminal)  # 自生后继符
 
             # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
             if not self.grammar.is_maybe_empty(next_symbol):
@@ -704,7 +704,12 @@ class ParserLALR1(ParserBase):
 
         # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
         if is_stop is False:
-            lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, lookahead)  # 继承后继符
+            lookahead_list.add(lookahead)  # 继承后继符
+
+        lr1_id_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
+        for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[first_symbol]:
+            for lookahead in lookahead_list:
+                lr1_id_set.add(self.create_lr1(lr0_id, lookahead))
 
         return lr1_id_set
 
