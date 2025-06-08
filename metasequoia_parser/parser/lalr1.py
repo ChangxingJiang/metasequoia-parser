@@ -755,69 +755,10 @@ class ParserLALR1(ParserBase):
 
         return generated_lr1_id_set, inherit_lr0_id_set
 
-    def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
-        """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
-
-        Returns
-        -------
-        Dict[Tuple[int, ...], List[Item1Set]]
-            根据项目集核心聚合后的项目集
-        """
-        # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
-
-        concentric_hash = collections.defaultdict(list)
-        for closure_id in self.closure_id_set:
-            closure_core = closure_id_to_closure_core_hash[closure_id]
-            closure_key = self.get_closure_key_by_clsure_core(closure_core)
-            # 根据项目集核心进行聚合
-            concentric_hash[closure_key].append(closure_id)
-        return concentric_hash
-
     def get_closure_key_by_clsure_core(self, closure_core: Tuple[int, ...]) -> Tuple[int, ...]:
         """根据 LR(1) 项目集闭包的 LR(1) 项目的元组，计算 LR(1) 项目集闭包用于合并的 LR(0) 项目的元组"""
         lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
         return tuple(sorted(set(lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
-
-    def merge_same_concentric_closure(self) -> None:
-        # pylint: disable=R0914
-        """合并 LR(1) 项目集核心相同的 LR(1) 项目集（原地更新）"""
-
-        # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        closure_core_to_closure_id_hash = self.closure_core_to_closure_id_hash
-        closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
-        closure_id_to_other_lr1_id_set_hash = self.closure_id_to_other_lr1_id_set_hash
-        old_closure_id_to_new_closure_id_hash = self.old_closure_id_to_new_closure_id_hash
-        closure_id_set = self.closure_id_set
-
-        for closure_id_list in self.concentric_hash.values():
-            if len(closure_id_list) == 1:
-                continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
-
-            # 构造新的项目集
-            core_lr1_id_set: Set[int] = set()  # 新项目集的核心项目
-            other_lr1_id_set: Set[int] = set()  # 新项目集的其他等价项目
-            for closure_id in closure_id_list:
-                closure_core = closure_id_to_closure_core_hash[closure_id]
-                all_lr1_id_set = closure_id_to_other_lr1_id_set_hash[closure_id]
-                core_lr1_id_set |= set(closure_core)
-                other_lr1_id_set |= all_lr1_id_set
-
-            # 通过排序逻辑以保证结果状态是稳定的
-            new_closure_core = tuple(sorted(core_lr1_id_set))
-
-            new_closure_id = len(closure_id_to_closure_core_hash)
-            closure_core_to_closure_id_hash[new_closure_core] = new_closure_id
-            closure_id_to_closure_core_hash.append(new_closure_core)
-            closure_id_to_other_lr1_id_set_hash.append(other_lr1_id_set)
-
-            # 记录旧 closure_core 到新 closure_core 的映射
-            for closure_id in closure_id_list:
-                old_closure_id_to_new_closure_id_hash[closure_id] = new_closure_id
-
-            # 整理记录有效 SID1 的集合
-            closure_id_set -= set(closure_id_list)
-            closure_id_set.add(new_closure_id)
 
     def create_closure_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
