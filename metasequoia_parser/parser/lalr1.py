@@ -147,8 +147,8 @@ class ParserLALR1(ParserBase):
         self.lr1_id_to_lr0_id_hash: List[int] = []
 
         # 查询组合 ID 到句柄之后的符号列表的唯一 ID 与展望符的组合的唯一 ID 的映射
-        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
-        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, int], int] = {}  # 用于构造唯一 ID
+        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, Optional[int]]] = []
+        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, Optional[int]], int] = {}  # 用于构造唯一 ID
 
         # LR(1) 项目 ID 到组合 ID 的映射
         self.lr1_id_to_cid_hash: List[int] = []
@@ -376,36 +376,35 @@ class ParserLALR1(ParserBase):
         """如果 LR(1) 项目不存在则构造 LR(1) 项目对象，返回直接返回构造的 LR(1) 项目对象的 ID"""
         lr0 = self.lr0_list[lr0_id]
 
+        # 递归计算后继 LR(1) 项目
         if lr0.next_lr0_id is not None:
             next_lr1_id = self.create_lr1(lr0.next_lr0_id, lookahead)
         else:
             next_lr1_id = None
 
+        # 初始化 LR(1) 项的基本信息映射
         lr1_id = len(self.lr1_core_to_lr1_id_hash)
         self.lr1_core_to_lr1_id_hash[(lr0_id, lookahead)] = lr1_id
         self.lr1_id_to_lr0_id_hash.append(lr0_id)
         self.lr1_id_to_lookahead_hash.append(lookahead)
 
         ah_id = lr0.ah_id
-        if (ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash:
-            cid = len(self.ah_id_and_lookahead_to_cid_hash)
-            self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)] = cid
-            self.cid_to_ah_id_and_lookahead_list.append((ah_id, lookahead))
-        else:
-            cid = self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)]
-        self.lr1_id_to_cid_hash.append(cid)
+        self.lr1_id_to_cid_hash.append(self.create_ah_id_lookahead_combine(ah_id, lookahead))
 
         # 添加 lookahead 为空的 cid
-        if (ah_id, None) not in self.ah_id_and_lookahead_to_cid_hash:
-            cid = len(self.ah_id_and_lookahead_to_cid_hash)
-            self.ah_id_and_lookahead_to_cid_hash[(ah_id, None)] = cid
-            self.cid_to_ah_id_and_lookahead_list.append((ah_id, None))
-        else:
-            cid = self.ah_id_and_lookahead_to_cid_hash[(ah_id, None)]
-        self.ah_id_no_lookahead_to_cid_hash[ah_id] = cid
+        self.ah_id_no_lookahead_to_cid_hash[ah_id] = self.create_ah_id_lookahead_combine(ah_id, None)
 
         self.lr1_id_to_next_symbol_next_lr1_id_hash.append((lr0.next_symbol, next_lr1_id))
+
         return lr1_id
+
+    @lru_cache(maxsize=None)
+    def create_ah_id_lookahead_combine(self, ah_id: int, lookahead: Optional[int]) -> int:
+        # assert (ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash
+        cid = len(self.ah_id_and_lookahead_to_cid_hash)
+        self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)] = cid
+        self.cid_to_ah_id_and_lookahead_list.append((ah_id, lookahead))
+        return cid
 
     def cal_nonterminal_all_start_terminal(self, symbol_id_list: List[int]) -> Dict[int, Set[int]]:
         """计算每个非终结符中，所有可能的开头终结符
