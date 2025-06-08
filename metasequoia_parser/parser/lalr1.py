@@ -174,18 +174,6 @@ class ParserLALR1(ParserBase):
         LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_set)}")
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
-        # 计算项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
-        LOGGER.info("[5 / 10] 计算项目集核心开始")
-        self.concentric_hash = self.cal_concentric_hash()
-        LOGGER.info(f"[5 / 10] 计算项目集核心结束 (项目集核心数量 = {len(self.concentric_hash)})")
-
-        # 合并项目集核心相同的项目集（原地更新）
-        LOGGER.info("[6 / 10] 合并项目集核心相同的项目集开始")
-        self.old_closure_id_to_new_closure_id_hash = {}  # 合并前旧 LR(1) 项目集闭包 ID 到合并后新 LR(1) 项目集闭包 ID 的映射
-        self.merge_same_concentric_closure()
-        LOGGER.info("[6 / 10] 合并项目集核心相同的项目集结束 "
-                    f"(合并后 LR(1) 项目集数量 = {len(self.closure_id_set)})")
-
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
         self.closure_next_relation = collections.defaultdict(dict)  # LR(1) 项目集闭包之间的前驱 / 后继关系
@@ -836,13 +824,9 @@ class ParserLALR1(ParserBase):
 
     def create_closure_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
-        old_closure_id_to_new_closure_id_hash = self.old_closure_id_to_new_closure_id_hash
         closure_next_relation = self.closure_next_relation
-
         for closure_id, next_symbol, next_closure_id in self.closure_relation:
-            new_closure_id = old_closure_id_to_new_closure_id_hash.get(closure_id, closure_id)
-            new_next_closure_id = old_closure_id_to_new_closure_id_hash.get(next_closure_id, next_closure_id)
-            closure_next_relation[new_closure_id][next_symbol] = new_next_closure_id
+            closure_next_relation[closure_id][next_symbol] = next_closure_id
 
     def create_lr_parsing_table_use_lalr1(self) -> List[List[Callable]]:
         # pylint: disable=R0801
