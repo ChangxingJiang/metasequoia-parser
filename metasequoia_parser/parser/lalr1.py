@@ -469,16 +469,16 @@ class ParserLALR1(ParserBase):
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         closure_core_to_closure_id_hash = self.closure_core_to_closure_id_hash
         closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
+        closure_id_to_closure_other_hash = self.closure_id_to_other_lr1_id_set_hash
         closure_relation = self.closure_relation
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
-        closure_id_to_other_lr1_id_set_hash = self.closure_id_to_other_lr1_id_set_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
         closure_core_to_closure_id_hash[init_closure_core] = 0
         closure_id_to_closure_core_hash.append(init_closure_core)
-        closure_id_to_other_lr1_id_set_hash.append(set())
+        closure_id_to_closure_other_hash.append(set())
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
         visited = {0}
@@ -500,15 +500,15 @@ class ParserLALR1(ParserBase):
                             f"LR(1) 项目集闭包数量={len(self.closure_id_to_closure_core_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
-            other_lr1_id_set = self.new_closure_lr1(closure_core)
+            closure_other = self.new_closure_lr1(closure_core)
             # print(f"项目集闭包尺寸: {len(closure_core)}, {len(other_lr1_id_set)}({sys.getsizeof(other_lr1_id_set)})")
 
             # 构造项目集闭包并添加到结果集中
-            closure_id_to_other_lr1_id_set_hash[closure_id] |= other_lr1_id_set
+            closure_id_to_closure_other_hash[closure_id] |= closure_other
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             next_group = collections.defaultdict(list)
-            for lr1_id in chain(closure_core, other_lr1_id_set):
+            for lr1_id in chain(closure_core, closure_other):
                 next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[lr1_id]
                 if next_symbol is not None:
                     next_group[next_symbol].append(next_lr1_id)
@@ -520,7 +520,7 @@ class ParserLALR1(ParserBase):
                     next_closure_id = len(closure_core_to_closure_id_hash)
                     closure_core_to_closure_id_hash[next_closure_core] = next_closure_id
                     closure_id_to_closure_core_hash.append(next_closure_core)
-                    closure_id_to_other_lr1_id_set_hash.append(set())
+                    closure_id_to_closure_other_hash.append(set())
                 else:
                     next_closure_id = closure_core_to_closure_id_hash[next_closure_core]
 
