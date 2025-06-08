@@ -180,11 +180,6 @@ class ParserLALR1(ParserBase):
         self.create_closure_relation()
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系结束")
 
-        # 计算核心项目到项目集闭包 ID（状态）的映射表（增加排序以保证结果状态是稳定的）
-        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表开始")
-        self.closure_id_to_status_hash = {closre_id: i for i, closre_id in enumerate(sorted(self.closure_id_set))}
-        LOGGER.info("[8 / 10] 计算核心项目到项目集闭包 ID（状态）的映射表结束")
-
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
         init_closure_core = (self.init_lr1_id,)
@@ -193,8 +188,8 @@ class ParserLALR1(ParserBase):
         accept_lr1_id = self.lr1_core_to_lr1_id_hash[accept_lr1_core]
         accept_closure_core = (accept_lr1_id,)
         accept_closure_key = self.get_closure_key_by_clsure_core(accept_closure_core)
-        self.init_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[init_closure_key]]
-        self.accept_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[accept_closure_key]]
+        self.init_status_id = self.closure_core_to_closure_id_hash[init_closure_key]
+        self.accept_status_id = self.closure_core_to_closure_id_hash[accept_closure_key]
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
 
         # 构造 ACTION 表 + GOTO 表
@@ -843,7 +838,6 @@ class ParserLALR1(ParserBase):
         table : List[List[Callable]]
             ACTION 表 + GOTO 表
         """
-        closure_id_to_status_hash = self.closure_id_to_status_hash
         closure_next_relation = self.closure_next_relation
         closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
         closure_id_to_other_lr1_id_set_hash = self.closure_id_to_other_lr1_id_set_hash
@@ -862,17 +856,14 @@ class ParserLALR1(ParserBase):
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
         for closure_id in self.closure_id_set:
-            status_id = closure_id_to_status_hash[closure_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
-
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
             for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
-                next_status_id = closure_id_to_status_hash[next_closure_id]
                 if next_symbol < n_terminal:
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
-                    position_shift_hash[(status_id, next_symbol)] = ActionShift(status=next_status_id)
+                    position_shift_hash[(closure_id, next_symbol)] = ActionShift(status=next_closure_id)
                 else:
                     # 后继项目为非终结符，填充 GOTO 表
-                    table[status_id][next_symbol] = ActionGoto(status=next_status_id)
+                    table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for lr1_id in chain(closure_id_to_closure_core_hash[closure_id],
@@ -884,7 +875,7 @@ class ParserLALR1(ParserBase):
                     reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                                  n_param=len(lr0.before_handle),
                                                  reduce_function=lr0.action)
-                    position_reduce_list_hash[(status_id, lookahead)].append((
+                    position_reduce_list_hash[(closure_id, lookahead)].append((
                         lr0.rr_priority_idx,  # RR 优先级
                         lr0.sr_priority_idx,  # SR 优先级
                         lr0.sr_combine_type,  # SR 合并顺序
