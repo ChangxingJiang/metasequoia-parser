@@ -780,12 +780,12 @@ class ParserLALR1(ParserBase):
         concentric_hash = collections.defaultdict(list)
         for closure_id in self.closure_id_set:
             closure_core = closure_id_to_closure_core_hash[closure_id]
-            closure_key = self.get_centric_core(closure_core)
+            closure_key = self.get_closure_key_by_clsure_core(closure_core)
             # 根据项目集核心进行聚合
             concentric_hash[closure_key].append(closure_id)
         return concentric_hash
 
-    def get_centric_core(self, closure_core: Tuple[int, ...]) -> Tuple[int, ...]:
+    def get_closure_key_by_clsure_core(self, closure_core: Tuple[int, ...]) -> Tuple[int, ...]:
         """根据 LR(1) 项目集闭包的 LR(1) 项目的元组，计算 LR(1) 项目集闭包用于合并的 LR(0) 项目的元组"""
         lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
         return tuple(sorted(set(lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
