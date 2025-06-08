@@ -43,7 +43,7 @@ class Item0:
     id: int = dataclasses.field(kw_only=True, hash=True, compare=False)
 
     # -------------------- 项目的基本信息（节点属性）--------------------
-    symbol_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
+    nonterminal_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 规约的非终结符 ID（即所在语义组名称对应的 ID）
     before_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之前的符号名称的列表
     ah_id: int = dataclasses.field(kw_only=True, hash=False, compare=True)  # 在句柄之后的符号名称的列表的 ID
     after_handle: Tuple[int, ...] = dataclasses.field(kw_only=True, hash=False,
@@ -65,7 +65,7 @@ class Item0:
         """将 ItemBase 转换为字符串表示"""
         before_symbol_str = " ".join(str(symbol) for symbol in self.before_handle)
         after_symbol_str = " ".join(str(symbol) for symbol in self.after_handle)
-        return f"{self.symbol_id}->{before_symbol_str}·{after_symbol_str}"
+        return f"{self.nonterminal_id}->{before_symbol_str}·{after_symbol_str}"
 
     def is_init(self) -> bool:
         """是否为入口项目"""
@@ -97,9 +97,6 @@ class ParserLALR1(ParserBase):
         self.grammar = grammar
         self.debug = debug
 
-        # 缓存器
-        self._dfs_visited = set()
-
         # 【调试模式】cProfile 性能分析
         self.profiler = None
         if self.profile:
@@ -123,9 +120,9 @@ class ParserLALR1(ParserBase):
         # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
-        self.symbol_to_start_item_list_hash = self.cal_symbol_to_start_item_list_hash()
+        self.nonterminal_id_to_start_lr0_hash = self.cal_nonterminal_id_to_start_lr0_hash()
         LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
-                    f"(映射表元素数量 = {len(self.symbol_to_start_item_list_hash)})")
+                    f"(映射表元素数量 = {len(self.nonterminal_id_to_start_lr0_hash)})")
 
         # 获取入口、接受 LR(0) 项目 ID
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 开始")
@@ -134,7 +131,7 @@ class ParserLALR1(ParserBase):
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
 
         # 计算所有涉及的非终结符的符号 ID 的列表（之所以不使用语法中所有符号的列表，是因为部分符号可能没有被实际引用）
-        nonterminal_id_list = list({lr0.symbol_id for lr0 in self.lr0_list})
+        nonterminal_id_list = list({lr0.nonterminal_id for lr0 in self.lr0_list})
 
         # 计算每个非终结符中，所有可能的开头终结符
         self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_id_list)
@@ -261,7 +258,7 @@ class ParserLALR1(ParserBase):
                 lr0_id = len(lr0_list)
                 lr0_list.append(Item0(
                     id=lr0_id,
-                    symbol_id=product.nonterminal_id,
+                    nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(),
                     ah_id=0,
                     after_handle=tuple(),
@@ -279,7 +276,7 @@ class ParserLALR1(ParserBase):
             lr0_id = len(lr0_list)
             last_item = Item0(
                 id=lr0_id,
-                symbol_id=product.nonterminal_id,
+                nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(product.symbol_id_list),
                 ah_id=0,
                 after_handle=tuple(),
@@ -305,7 +302,7 @@ class ParserLALR1(ParserBase):
                     ah_id = after_handle_to_ah_id_hash[after_handle]
                 now_item = Item0(
                     id=lr0_id,
-                    symbol_id=product.nonterminal_id,
+                    nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(product.symbol_id_list[:i]),
                     ah_id=ah_id,
                     after_handle=after_handle,
@@ -331,7 +328,7 @@ class ParserLALR1(ParserBase):
                 ah_id = after_handle_to_ah_id_hash[after_handle]
             lr0_list.append(Item0(
                 id=lr0_id,
-                symbol_id=product.nonterminal_id,
+                nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(),
                 ah_id=ah_id,
                 after_handle=after_handle,
@@ -344,18 +341,19 @@ class ParserLALR1(ParserBase):
                 rr_priority_idx=product.rr_priority_idx
             ))
 
-    def cal_symbol_to_start_item_list_hash(self) -> Dict[int, List[Item0]]:
+    def cal_nonterminal_id_to_start_lr0_hash(self) -> Dict[int, List[Item0]]:
         """根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
+
         Returns
         -------
         Dict[int, List[T]]
             键为非终结符名称，值为非终结符对应项目的列表（泛型 T 为 ItemBase 的子类）
         """
-        symbol_to_start_item_list_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
+        nonterminal_id_to_start_lr0_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
         for lr0 in self.lr0_list:
             if not lr0.before_handle:
-                symbol_to_start_item_list_hash[lr0.symbol_id].append(lr0)
-        return symbol_to_start_item_list_hash
+                nonterminal_id_to_start_lr0_hash[lr0.nonterminal_id].append(lr0)
+        return nonterminal_id_to_start_lr0_hash
 
     def get_init_lr0_id(self) -> int:
         """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
@@ -679,7 +677,7 @@ class ParserLALR1(ParserBase):
         if first_symbol < n_terminal:
             return set()
 
-        sub_item_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
+        lr1_id_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
 
         # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
         # 先从当前句柄后第 1 个元素向后继续遍历，添加自生型后继
@@ -691,13 +689,13 @@ class ParserLALR1(ParserBase):
             # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
             # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
             if next_symbol < n_terminal:
-                sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, next_symbol)  # 自生后继符
+                lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, next_symbol)  # 自生后继符
                 is_stop = True
                 break
 
             # 如果遍历到的符号是非终结符，则遍历该非终结符的所有可能的开头终结符添加为展望符
             for start_terminal in self.nonterminal_all_start_terminal[next_symbol]:
-                sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, start_terminal)  # 自生后继符
+                lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, start_terminal)  # 自生后继符
 
             # 如果遍历到的非终结符不能匹配 %emtpy，则标记 is_stop 并结束遍历
             if not self.grammar.is_maybe_empty(next_symbol):
@@ -708,9 +706,9 @@ class ParserLALR1(ParserBase):
 
         # 如果没有遍历到不能匹配 %empty 的非终结符或终结符，则添加继承型后继
         if is_stop is False:
-            sub_item_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, lookahead)  # 继承后继符
+            lr1_id_set |= self.create_lr1_by_symbol_and_lookahead(first_symbol, lookahead)  # 继承后继符
 
-        return sub_item_set
+        return lr1_id_set
 
     @lru_cache(maxsize=None)
     def cal_generated_and_inherit_lr1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
@@ -745,7 +743,7 @@ class ParserLALR1(ParserBase):
     @lru_cache(maxsize=None)
     def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
         """生成以非终结符 symbol 的所有初始项目为 LR(0) 项目，以 lookahead 为展望符的所有 LR(1) 项目的集合"""
-        return {self.create_lr1(lr0, lookahead) for lr0 in self.symbol_to_start_item_list_hash[symbol]}
+        return {self.create_lr1(lr0, lookahead) for lr0 in self.nonterminal_id_to_start_lr0_hash[symbol]}
 
     def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
@@ -779,21 +777,21 @@ class ParserLALR1(ParserBase):
                 continue  # 如果没有项目集核心相同的多个项目集，则不需要合并
 
             # 构造新的项目集
-            new_core_item_set: Set[int] = set()  # 新项目集的核心项目
-            new_other_item_set: Set[int] = set()  # 新项目集的其他等价项目
+            core_lr1_id_set: Set[int] = set()  # 新项目集的核心项目
+            other_lr1_id_set: Set[int] = set()  # 新项目集的其他等价项目
             for closure_id in closure_id_list:
                 closure_core = self.closure_id_to_closure_core_hash[closure_id]
                 all_lr1_id_set = self.closure_id_to_other_lr1_id_set_hash[closure_id]
-                new_core_item_set |= set(closure_core)
-                new_other_item_set |= all_lr1_id_set
+                core_lr1_id_set |= set(closure_core)
+                other_lr1_id_set |= all_lr1_id_set
 
             # 通过排序逻辑以保证结果状态是稳定的
-            new_closure_core = tuple(sorted(new_core_item_set))
+            new_closure_core = tuple(sorted(core_lr1_id_set))
 
             new_closure_id = len(self.closure_id_to_closure_core_hash)
             closure_core_to_closure_id_hash[new_closure_core] = new_closure_id
             closure_id_to_closure_core_hash.append(new_closure_core)
-            self.closure_id_to_other_lr1_id_set_hash.append(new_other_item_set)
+            self.closure_id_to_other_lr1_id_set_hash.append(other_lr1_id_set)
 
             # 记录旧 closure_core 到新 closure_core 的映射
             for closure_id in closure_id_list:
@@ -854,7 +852,7 @@ class ParserLALR1(ParserBase):
                 lookahead = self.lr1_id_to_lookahead_hash[lr1_id]
                 lr0 = self.lr0_list[lr0_id]
                 if lr0.next_symbol is None:
-                    reduce_action = ActionReduce(reduce_nonterminal_id=lr0.symbol_id,
+                    reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                                  n_param=len(lr0.before_handle),
                                                  reduce_function=lr0.action)
                     position_reduce_list_hash[(status_id, lookahead)].append((
