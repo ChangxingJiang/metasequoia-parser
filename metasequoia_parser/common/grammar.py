@@ -238,7 +238,11 @@ class GrammarBuilder:
         terminal_name_set = {item.name for item in self.terminal_type_enum}
 
         # 检查是否存在重名的标识符、非标识符
-        assert len(nonterminal_name_set) == len(self.groups), "存在重名的多个语义组"
+        if len(nonterminal_name_set) < len(self.groups):
+            group_name_count = collections.Counter([group.name for group in self.groups])
+            for group_name, count in group_name_count.items():
+                if count > 1:
+                    raise GrammarError(f"语义组 {group_name} 存在重名")
         assert len(terminal_name_set & nonterminal_name_set) == 0, "存在语义组与终结符名称相同"
 
         # 检查入口语义组是否已被定义
