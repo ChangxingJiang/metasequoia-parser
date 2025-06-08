@@ -187,12 +187,14 @@ class ParserLALR1(ParserBase):
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
+        init_closure_core = (self.init_lr1_id,)
+        init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
         accept_lr1_core = self.accept_lr0_id * (self.grammar.n_terminal + 1) + self.grammar.end_terminal
         accept_lr1_id = self.lr1_core_to_lr1_id_hash[accept_lr1_core]
-        self.init_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(self.init_lr1_id,)]]
-        print("init_status_id: ", (self.init_lr1_id,), self.get_closure_key_by_clsure_core((self.init_lr1_id,)))
-        self.accept_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(accept_lr1_id,)]]
-        print("accept_status_id: ", (accept_lr1_id,), self.get_closure_key_by_clsure_core((accept_lr1_id,)))
+        accept_closure_core = (accept_lr1_id,)
+        accept_closure_key = self.get_closure_key_by_clsure_core(accept_closure_core)
+        self.init_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[init_closure_key]]
+        self.accept_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[accept_closure_key]]
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
 
         # 构造 ACTION 表 + GOTO 表
