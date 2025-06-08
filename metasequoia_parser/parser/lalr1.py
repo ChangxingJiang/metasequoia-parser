@@ -6,6 +6,7 @@ import cProfile
 import collections
 import dataclasses
 import enum
+import tracemalloc
 from functools import lru_cache
 from itertools import chain
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -15,6 +16,8 @@ from metasequoia_parser.common import CombineType
 from metasequoia_parser.common import Grammar
 from metasequoia_parser.common import ParserBase
 from metasequoia_parser.utils import LOGGER
+
+EMPTY_SET = set()
 
 
 class ItemType(enum.Enum):
@@ -147,8 +150,8 @@ class ParserLALR1(ParserBase):
         self.lr1_id_to_lr0_id_hash: List[int] = []
 
         # 查询组合 ID 到句柄之后的符号列表的唯一 ID 与展望符的组合的唯一 ID 的映射
-        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, Optional[int]]] = []
-        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, Optional[int]], int] = {}  # 用于构造唯一 ID
+        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
+        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, int], int] = {}  # 用于构造唯一 ID
 
         # LR(1) 项目 ID 到组合 ID 的映射
         self.lr1_id_to_cid_hash: List[int] = []
@@ -368,9 +371,10 @@ class ParserLALR1(ParserBase):
                 return lr0.id
         raise KeyError("未从项目列表中获取到 ACCEPT 项目")
 
-    @lru_cache(maxsize=None)
     def create_lr1(self, lr0_id: int, lookahead: int) -> int:
         """如果 LR(1) 项目不存在则构造 LR(1) 项目对象，返回直接返回构造的 LR(1) 项目对象的 ID"""
+        if (lr0_id, lookahead) in self.lr1_core_to_lr1_id_hash:
+            return self.lr1_core_to_lr1_id_hash[(lr0_id, lookahead)]
         lr0 = self.lr0_list[lr0_id]
 
         # 递归计算后继 LR(1) 项目
@@ -389,15 +393,15 @@ class ParserLALR1(ParserBase):
         self.lr1_id_to_cid_hash.append(self.create_ah_id_lookahead_combine(ah_id, lookahead))
 
         # 添加 lookahead 为空的 cid
-        self.ah_id_no_lookahead_to_cid_hash[ah_id] = self.create_ah_id_lookahead_combine(ah_id, None)
+        self.ah_id_no_lookahead_to_cid_hash[ah_id] = self.create_ah_id_lookahead_combine(ah_id, self.grammar.n_terminal)
 
         self.lr1_id_to_next_symbol_next_lr1_id_hash.append((lr0.next_symbol, next_lr1_id))
 
         return lr1_id
 
-    @lru_cache(maxsize=None)
-    def create_ah_id_lookahead_combine(self, ah_id: int, lookahead: Optional[int]) -> int:
-        # assert (ah_id, lookahead) not in self.ah_id_and_lookahead_to_cid_hash
+    def create_ah_id_lookahead_combine(self, ah_id: int, lookahead: int) -> int:
+        if (ah_id, lookahead) in self.ah_id_and_lookahead_to_cid_hash:
+            return self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)]
         cid = len(self.ah_id_and_lookahead_to_cid_hash)
         self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)] = cid
         self.cid_to_ah_id_and_lookahead_list.append((ah_id, lookahead))
@@ -457,7 +461,6 @@ class ParserLALR1(ParserBase):
 
     def bfs_search_all_closure(self) -> None:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
-
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         closure_core_to_closure_id_hash = self.closure_core_to_closure_id_hash
         closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
@@ -474,16 +477,25 @@ class ParserLALR1(ParserBase):
         visited = {0}
         queue = collections.deque([0])
 
+        # tracemalloc.start()
+
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue:
             closure_id = queue.popleft()
             closure_core = closure_id_to_closure_core_hash[closure_id]
 
-            if self.debug is True:
-                LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
-
             idx += 1
+
+            if self.debug is True and idx % 1000 == 0:
+                LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: 已处理={idx}, 队列中={len(queue)}")
+                # snapshot = tracemalloc.take_snapshot()
+                # print(f"[Memory] {tracemalloc.get_tracemalloc_memory()}")
+                # top_stats = snapshot.statistics("traceback")
+                # print("[ Top memory consuming lines ]")
+                # for stat in top_stats[:10]:
+                #     print(stat)
+                # exit(1)
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
             other_lr1_id_set = self.new_closure_lr1(closure_core)
@@ -651,7 +663,7 @@ class ParserLALR1(ParserBase):
 
         # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
         if ah_id == 0:
-            return set()
+            return EMPTY_SET
 
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
         after_handle = self.ah_id_to_after_handle_hash[ah_id]
@@ -663,7 +675,7 @@ class ParserLALR1(ParserBase):
         # 如果当前句柄之后的第 1 个符号是终结符，则不存在等价的 LR(1) 项目，直接返回空集合
         # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
         if first_symbol < n_terminal:
-            return set()
+            return EMPTY_SET
 
         lookahead_list = set()  # 后继符的列表
 
@@ -734,7 +746,7 @@ class ParserLALR1(ParserBase):
         generated_lr1_id_set = set()  # 自生后继型 LR(1) 项目
         inherit_lr0_id_set = set()  # 继承后继型 LR(1) 项目对应的 LR(0) 项目
         for lr1_id in lr1_id_set:
-            if lr1_id_to_lookahead_hash[lr1_id] is not None:
+            if lr1_id_to_lookahead_hash[lr1_id] != self.grammar.n_terminal:
                 generated_lr1_id_set.add(lr1_id)
             else:
                 inherit_lr0_id_set.add(lr1_id_to_lr0_id_hash[lr1_id])
