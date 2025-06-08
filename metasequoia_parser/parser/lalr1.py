@@ -275,7 +275,7 @@ class ParserLALR1(ParserBase):
             # 添加句柄在结束位置（最右侧）的项目（规约项目）
             lr0_id = len(lr0_list)
             last_lr0_id = lr0_id
-            last_item = Item0(
+            lr0_list.append(Item0(
                 id=lr0_id,
                 nonterminal_id=product.nonterminal_id,
                 before_handle=tuple(product.symbol_id_list),
@@ -288,8 +288,7 @@ class ParserLALR1(ParserBase):
                 sr_priority_idx=product.sr_priority_idx,
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
-            )
-            lr0_list.append(last_item)
+            ))
 
             # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
             for i in range(len(product.symbol_id_list) - 1, 0, -1):
@@ -301,7 +300,7 @@ class ParserLALR1(ParserBase):
                     ah_id_to_after_handle_hash.append(after_handle)
                 else:
                     ah_id = after_handle_to_ah_id_hash[after_handle]
-                now_item = Item0(
+                lr0_list.append(Item0(
                     id=lr0_id,
                     nonterminal_id=product.nonterminal_id,
                     before_handle=tuple(product.symbol_id_list[:i]),
@@ -314,10 +313,8 @@ class ParserLALR1(ParserBase):
                     sr_priority_idx=product.sr_priority_idx,
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
-                )
-                lr0_list.append(now_item)
+                ))
                 last_lr0_id = lr0_id
-                last_item = now_item
 
             # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
             lr0_id = len(lr0_list)
@@ -564,21 +561,14 @@ class ParserLALR1(ParserBase):
         缓存非终结符的所有继承后继符等价项，即非终结符 ID 到等待展望符的 LR(0) 的集合的映射
         提前计算非终结符的所有可能的开头终结符
         """
+        cid_to_ah_id_and_lookahead_list = self.cid_to_ah_id_and_lookahead_list
+        lr1_id_to_cid_hash = self.lr1_id_to_cid_hash
+
         lr1_id_set = set()
-
-        # 【测试工具】打印日志
-        # show_list = []
-        # for lr1_id in closure_core:
-        #     cid = self.lr1_id_to_cid_hash[lr1_id]
-        #     ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
-        #     after_handle = self.ah_id_to_after_handle_hash[ah_id]
-        #     show_list.append("(" + " ".join(str(v) for v in after_handle) + ", " + str(lookahead) + ")")
-        # print("; ".join(show_list))
-
         visited_ah_id_set = set()  # 已经处理的 ah_id 的集合
         for lr1_id in closure_core:
-            cid = self.lr1_id_to_cid_hash[lr1_id]
-            ah_id, lookahead = self.cid_to_ah_id_and_lookahead_list[cid]
+            cid = lr1_id_to_cid_hash[lr1_id]
+            ah_id, lookahead = cid_to_ah_id_and_lookahead_list[cid]
             if ah_id == 0:
                 continue
             sub_lr1_id_set, lr0_id_set = self.cal_generated_and_inherit_lr1_id_set_by_ah_id(ah_id)
@@ -716,6 +706,10 @@ class ParserLALR1(ParserBase):
     @lru_cache(maxsize=None)
     def cal_generated_and_inherit_lr1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
         # 初始化广度优先搜索的第 1 批节点
+        lr1_id_to_cid_hash = self.lr1_id_to_cid_hash
+        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
+        lr1_id_to_lookahead_hash = self.lr1_id_to_lookahead_hash
+
         cid = self.ah_id_no_lookahead_to_cid_hash[ah_id]
         visited_cid_set = {cid}
         queue = collections.deque([cid])
@@ -732,22 +726,20 @@ class ParserLALR1(ParserBase):
             # 将等价项目组中需要继续寻找等价项目的添加到队列
             # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
             for lr1_id in sub_lr1_id_set:
-                new_cid = self.lr1_id_to_cid_hash[lr1_id]
+                new_cid = lr1_id_to_cid_hash[lr1_id]
                 if new_cid not in visited_cid_set:
                     visited_cid_set.add(new_cid)
                     queue.append(new_cid)
 
-        generated_lr1_id_set = {lr1_id for lr1_id in lr1_id_set if self.lr1_id_to_lookahead_hash[lr1_id] is not None}
-        inherit_lr0_id_set = {self.lr1_id_to_lr0_id_hash[lr1_id]
-                              for lr1_id in lr1_id_set if self.lr1_id_to_lookahead_hash[lr1_id] is None}
+        generated_lr1_id_set = set()  # 自生后继型 LR(1) 项目
+        inherit_lr0_id_set = set()  # 继承后继型 LR(1) 项目对应的 LR(0) 项目
+        for lr1_id in lr1_id_set:
+            if lr1_id_to_lookahead_hash[lr1_id] is not None:
+                generated_lr1_id_set.add(lr1_id)
+            else:
+                inherit_lr0_id_set.add(lr1_id_to_lr0_id_hash[lr1_id])
 
         return generated_lr1_id_set, inherit_lr0_id_set
-
-    @lru_cache(maxsize=None)
-    def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
-        """生成以非终结符 symbol 的所有初始项目为 LR(0) 项目，以 lookahead 为展望符的所有 LR(1) 项目的集合"""
-        return {self.create_lr1(lr0_id, lookahead)
-                for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[symbol]}
 
     def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合
@@ -758,12 +750,13 @@ class ParserLALR1(ParserBase):
             根据项目集核心聚合后的项目集
         """
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        closure_id_to_closure_core_hash: List[Tuple[int, ...]] = self.closure_id_to_closure_core_hash
+        closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
+        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
 
         concentric_hash = collections.defaultdict(list)
         for closure_id in self.closure_id_set:
             closure_core = closure_id_to_closure_core_hash[closure_id]
-            centric_tuple = tuple(sorted(set(self.lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
+            centric_tuple = tuple(sorted(set(lr1_id_to_lr0_id_hash[lr1_id] for lr1_id in closure_core)))
             # 根据项目集核心进行聚合
             concentric_hash[centric_tuple].append(closure_id)
         return concentric_hash
@@ -773,8 +766,11 @@ class ParserLALR1(ParserBase):
         """合并 LR(1) 项目集核心相同的 LR(1) 项目集（原地更新）"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        closure_core_to_closure_id_hash: Dict[Tuple[int, ...], int] = self.closure_core_to_closure_id_hash
-        closure_id_to_closure_core_hash: List[Tuple[int, ...]] = self.closure_id_to_closure_core_hash
+        closure_core_to_closure_id_hash = self.closure_core_to_closure_id_hash
+        closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
+        closure_id_to_other_lr1_id_set_hash = self.closure_id_to_other_lr1_id_set_hash
+        old_closure_id_to_new_closure_id_hash = self.old_closure_id_to_new_closure_id_hash
+        closure_id_set = self.closure_id_set
 
         for closure_id_list in self.concentric_hash.values():
             if len(closure_id_list) == 1:
@@ -784,35 +780,36 @@ class ParserLALR1(ParserBase):
             core_lr1_id_set: Set[int] = set()  # 新项目集的核心项目
             other_lr1_id_set: Set[int] = set()  # 新项目集的其他等价项目
             for closure_id in closure_id_list:
-                closure_core = self.closure_id_to_closure_core_hash[closure_id]
-                all_lr1_id_set = self.closure_id_to_other_lr1_id_set_hash[closure_id]
+                closure_core = closure_id_to_closure_core_hash[closure_id]
+                all_lr1_id_set = closure_id_to_other_lr1_id_set_hash[closure_id]
                 core_lr1_id_set |= set(closure_core)
                 other_lr1_id_set |= all_lr1_id_set
 
             # 通过排序逻辑以保证结果状态是稳定的
             new_closure_core = tuple(sorted(core_lr1_id_set))
 
-            new_closure_id = len(self.closure_id_to_closure_core_hash)
+            new_closure_id = len(closure_id_to_closure_core_hash)
             closure_core_to_closure_id_hash[new_closure_core] = new_closure_id
             closure_id_to_closure_core_hash.append(new_closure_core)
-            self.closure_id_to_other_lr1_id_set_hash.append(other_lr1_id_set)
+            closure_id_to_other_lr1_id_set_hash.append(other_lr1_id_set)
 
             # 记录旧 closure_core 到新 closure_core 的映射
             for closure_id in closure_id_list:
-                self.old_closure_id_to_new_closure_id_hash[closure_id] = new_closure_id
+                old_closure_id_to_new_closure_id_hash[closure_id] = new_closure_id
 
             # 整理记录有效 SID1 的集合
-            for closure_id in closure_id_list:
-                if closure_id in self.closure_id_set:
-                    self.closure_id_set.remove(closure_id)
-            self.closure_id_set.add(new_closure_id)
+            closure_id_set -= set(closure_id_list)
+            closure_id_set.add(new_closure_id)
 
     def create_closure_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
+        old_closure_id_to_new_closure_id_hash = self.old_closure_id_to_new_closure_id_hash
+        closure_next_relation = self.closure_next_relation
+
         for closure_id, next_symbol, next_closure_id in self.closure_relation:
-            new_closure_id = self.old_closure_id_to_new_closure_id_hash.get(closure_id, closure_id)
-            new_next_closure_id = self.old_closure_id_to_new_closure_id_hash.get(next_closure_id, next_closure_id)
-            self.closure_next_relation[new_closure_id][next_symbol] = new_next_closure_id
+            new_closure_id = old_closure_id_to_new_closure_id_hash.get(closure_id, closure_id)
+            new_next_closure_id = old_closure_id_to_new_closure_id_hash.get(next_closure_id, next_closure_id)
+            closure_next_relation[new_closure_id][next_symbol] = new_next_closure_id
 
     def create_lr_parsing_table_use_lalr1(self) -> List[List[Callable]]:
         # pylint: disable=R0801
@@ -827,6 +824,15 @@ class ParserLALR1(ParserBase):
         table : List[List[Callable]]
             ACTION 表 + GOTO 表
         """
+        closure_id_to_status_hash = self.closure_id_to_status_hash
+        closure_next_relation = self.closure_next_relation
+        closure_id_to_closure_core_hash = self.closure_id_to_closure_core_hash
+        closure_id_to_other_lr1_id_set_hash = self.closure_id_to_other_lr1_id_set_hash
+        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
+        lr1_id_to_lookahead_hash = self.lr1_id_to_lookahead_hash
+        lr0_list = self.lr0_list
+        n_terminal = self.grammar.n_terminal
+
         # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
         n_status = len(self.closure_id_set)
         table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
@@ -837,12 +843,12 @@ class ParserLALR1(ParserBase):
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
         for closure_id in self.closure_id_set:
-            status_id = self.closure_id_to_status_hash[closure_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
+            status_id = closure_id_to_status_hash[closure_id]  # 计算 LR(1) 项目集的 S1_ID 对应的状态 ID
 
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
-            for next_symbol, next_closure_id in self.closure_next_relation[closure_id].items():
-                next_status_id = self.closure_id_to_status_hash[next_closure_id]
-                if self.grammar.is_terminal(next_symbol):
+            for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
+                next_status_id = closure_id_to_status_hash[next_closure_id]
+                if next_symbol < n_terminal:
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
                     position_shift_hash[(status_id, next_symbol)] = ActionShift(status=next_status_id)
                 else:
@@ -850,11 +856,11 @@ class ParserLALR1(ParserBase):
                     table[status_id][next_symbol] = ActionGoto(status=next_status_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-            for lr1_id in chain(self.closure_id_to_closure_core_hash[closure_id],
-                                self.closure_id_to_other_lr1_id_set_hash[closure_id]):
-                lr0_id = self.lr1_id_to_lr0_id_hash[lr1_id]
-                lookahead = self.lr1_id_to_lookahead_hash[lr1_id]
-                lr0 = self.lr0_list[lr0_id]
+            for lr1_id in chain(closure_id_to_closure_core_hash[closure_id],
+                                closure_id_to_other_lr1_id_set_hash[closure_id]):
+                lr0_id = lr1_id_to_lr0_id_hash[lr1_id]
+                lookahead = lr1_id_to_lookahead_hash[lr1_id]
+                lr0 = lr0_list[lr0_id]
                 if lr0.next_symbol is None:
                     reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                                  n_param=len(lr0.before_handle),
