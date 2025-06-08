@@ -33,7 +33,7 @@ class Item0:
 
     Attributes
     ----------
-    next_lr1 : Optional[Item0]
+    next_lr0 : Optional[Item0]
         连接到的后继项目对象
     """
 
@@ -54,7 +54,7 @@ class Item0:
     # -------------------- 项目的关联关系（节点出射边）--------------------
     # 能够连接到后继项目的符号名称（即 after_handle 中的第 1 个元素）
     next_symbol: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)
-    next_lr1: Optional["Item0"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
+    next_lr0: Optional["Item0"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
 
     # -------------------- 项目的 SR 优先级、结合方向和 RR 优先级 --------------------
     sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
@@ -120,9 +120,9 @@ class ParserLALR1(ParserBase):
         # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
         # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
         LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
-        self.nonterminal_id_to_start_lr0_hash = self.cal_nonterminal_id_to_start_lr0_hash()
+        self.nonterminal_id_to_start_lr0_id_list_hash = self.cal_nonterminal_id_to_start_lr0_id_hash()
         LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
-                    f"(映射表元素数量 = {len(self.nonterminal_id_to_start_lr0_hash)})")
+                    f"(映射表元素数量 = {len(self.nonterminal_id_to_start_lr0_id_list_hash)})")
 
         # 获取入口、接受 LR(0) 项目 ID
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 开始")
@@ -265,7 +265,7 @@ class ParserLALR1(ParserBase):
                     action=product.action,
                     item_type=last_item_type,
                     next_symbol=None,  # 规约项目不存在后继项目
-                    next_lr1=None,  # 规约项目不存在后继项目
+                    next_lr0=None,  # 规约项目不存在后继项目
                     sr_priority_idx=product.sr_priority_idx,
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
@@ -283,7 +283,7 @@ class ParserLALR1(ParserBase):
                 action=product.action,
                 item_type=last_item_type,
                 next_symbol=None,  # 规约项目不存在后继项目
-                next_lr1=None,  # 规约项目不存在后继项目
+                next_lr0=None,  # 规约项目不存在后继项目
                 sr_priority_idx=product.sr_priority_idx,
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
@@ -309,7 +309,7 @@ class ParserLALR1(ParserBase):
                     action=product.action,
                     item_type=ItemType.SHIFT,
                     next_symbol=product.symbol_id_list[i],
-                    next_lr1=last_item,
+                    next_lr0=last_item,
                     sr_priority_idx=product.sr_priority_idx,
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
@@ -335,13 +335,13 @@ class ParserLALR1(ParserBase):
                 action=product.action,
                 item_type=first_item_type,
                 next_symbol=product.symbol_id_list[0],
-                next_lr1=last_item,
+                next_lr0=last_item,
                 sr_priority_idx=product.sr_priority_idx,
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
             ))
 
-    def cal_nonterminal_id_to_start_lr0_hash(self) -> Dict[int, List[Item0]]:
+    def cal_nonterminal_id_to_start_lr0_id_hash(self) -> Dict[int, List[int]]:
         """根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
 
         Returns
@@ -349,11 +349,11 @@ class ParserLALR1(ParserBase):
         Dict[int, List[T]]
             键为非终结符名称，值为非终结符对应项目的列表（泛型 T 为 ItemBase 的子类）
         """
-        nonterminal_id_to_start_lr0_hash: Dict[int, List[Item0]] = collections.defaultdict(list)
+        nonterminal_id_to_start_lr0_id_hash: Dict[int, List[int]] = collections.defaultdict(list)
         for lr0 in self.lr0_list:
             if not lr0.before_handle:
-                nonterminal_id_to_start_lr0_hash[lr0.nonterminal_id].append(lr0)
-        return nonterminal_id_to_start_lr0_hash
+                nonterminal_id_to_start_lr0_id_hash[lr0.nonterminal_id].append(lr0.id)
+        return nonterminal_id_to_start_lr0_id_hash
 
     def get_init_lr0_id(self) -> int:
         """从 LR(0) 项目列表中获取入口 LR(0) 项目的 ID"""
@@ -369,16 +369,13 @@ class ParserLALR1(ParserBase):
                 return lr0.id
         raise KeyError("未从项目列表中获取到 ACCEPT 项目")
 
-    def create_lr1(self, lr0: Item0, lookahead: int) -> int:
+    @lru_cache(maxsize=None)
+    def create_lr1(self, lr0_id: int, lookahead: int) -> int:
         """如果 LR(1) 项目不存在则构造 LR(1) 项目对象，返回直接返回构造的 LR(1) 项目对象的 ID"""
-        lr0_id = lr0.id
+        lr0 = self.lr0_list[lr0_id]
 
-        # 如果 LR(1) 项目已经存在则返回已存在 LR(1) 项目 ID
-        if (lr0_id, lookahead) in self.lr1_core_to_lr1_id_hash:
-            return self.lr1_core_to_lr1_id_hash[(lr0_id, lookahead)]
-
-        if lr0.next_lr1 is not None:
-            next_lr1_id = self.create_lr1(lr0.next_lr1, lookahead)
+        if lr0.next_lr0 is not None:
+            next_lr1_id = self.create_lr1(lr0.next_lr0.id, lookahead)
         else:
             next_lr1_id = None
 
@@ -470,7 +467,7 @@ class ParserLALR1(ParserBase):
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
-        self.init_lr1_id = self.create_lr1(self.lr0_list[self.init_lr0_id], self.grammar.end_terminal)
+        self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
         closure_core_to_closure_id_hash[init_closure_core] = 0
         closure_id_to_closure_core_hash.append(init_closure_core)
@@ -591,7 +588,7 @@ class ParserLALR1(ParserBase):
                 visited_ah_id_set.add(ah_id)
 
             for lr0_id in lr0_id_set:
-                lr1_id_set.add(self.create_lr1(self.lr0_list[lr0_id], lookahead))
+                lr1_id_set.add(self.create_lr1(lr0_id, lookahead))
         return lr1_id_set
 
     def bfs_closure(self, closure_core: Tuple[int]) -> Set[int]:
@@ -743,7 +740,8 @@ class ParserLALR1(ParserBase):
     @lru_cache(maxsize=None)
     def create_lr1_by_symbol_and_lookahead(self, symbol: int, lookahead: int) -> Set[int]:
         """生成以非终结符 symbol 的所有初始项目为 LR(0) 项目，以 lookahead 为展望符的所有 LR(1) 项目的集合"""
-        return {self.create_lr1(lr0, lookahead) for lr0 in self.nonterminal_id_to_start_lr0_hash[symbol]}
+        return {self.create_lr1(lr0_id, lookahead)
+                for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[symbol]}
 
     def cal_concentric_hash(self) -> Dict[Tuple[int, ...], List[int]]:
         """计算 LR(1) 的项目集核心，并根据项目集的核心（仅包含规约符、符号列表和句柄的核心项目元组）进行聚合

@@ -223,8 +223,10 @@ def compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: bool = Fal
 
     source_script = ["\"\"\""]
     for symbol_name, symbol_id in parser.grammar.symbol_name_id_hash.items():
-        if symbol_id in parser.nonterminal_id_to_start_lr0_hash:
-            source_script.append(f"{symbol_name}({symbol_id}): {parser.nonterminal_id_to_start_lr0_hash[symbol_id]}")
+        if symbol_id in parser.nonterminal_id_to_start_lr0_id_list_hash:
+            lr0_id_list = parser.nonterminal_id_to_start_lr0_id_list_hash[symbol_id]
+            lr0_list = [parser.lr0_list[lr0_id] for lr0_id in lr0_id_list]
+            source_script.append(f"{symbol_name}({symbol_id}): {lr0_list}")
         else:
             source_script.append(f"{symbol_name}({symbol_id}): 终结符")
     source_script.append("\"\"\"")
