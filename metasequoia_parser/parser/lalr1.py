@@ -202,7 +202,9 @@ class ParserLALR1(ParserBase):
         accept_lr1_core = self.accept_lr0_id * (self.grammar.n_terminal + 1) + self.grammar.end_terminal
         accept_lr1_id = self.lr1_core_to_lr1_id_hash[accept_lr1_core]
         self.init_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(self.init_lr1_id,)]]
+        print("init_status_id: ", (self.init_lr1_id,), self.get_closure_key_by_clsure_core((self.init_lr1_id,)))
         self.accept_status_id = self.closure_id_to_status_hash[self.closure_core_to_closure_id_hash[(accept_lr1_id,)]]
+        print("accept_status_id: ", (accept_lr1_id,), self.get_closure_key_by_clsure_core((accept_lr1_id,)))
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
 
         # 构造 ACTION 表 + GOTO 表
@@ -476,12 +478,13 @@ class ParserLALR1(ParserBase):
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
-        closure_core_to_closure_id_hash[init_closure_core] = 0
+        init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
+        closure_core_to_closure_id_hash[init_closure_key] = 0
         closure_id_to_closure_core_hash.append(set())
         closure_id_to_closure_other_hash.append(set())
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
-        visited = {0}
+        visited = {init_closure_core}
         queue = collections.deque([(0, init_closure_core)])
 
         # 广度优先搜索遍历所有项目集闭包
@@ -516,21 +519,22 @@ class ParserLALR1(ParserBase):
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             for next_symbol, sub_lr1_id_set in next_group.items():
                 next_closure_core: Tuple[int, ...] = tuple(sorted(set(sub_lr1_id_set)))
-                if next_closure_core not in closure_core_to_closure_id_hash:
+                next_closure_key: Tuple[int, ...] = self.get_closure_key_by_clsure_core(next_closure_core)
+                if next_closure_key not in closure_core_to_closure_id_hash:
                     next_closure_id = len(closure_core_to_closure_id_hash)
-                    closure_core_to_closure_id_hash[next_closure_core] = next_closure_id
+                    closure_core_to_closure_id_hash[next_closure_key] = next_closure_id
                     closure_id_to_closure_core_hash.append(set())
                     closure_id_to_closure_other_hash.append(set())
                 else:
-                    next_closure_id = closure_core_to_closure_id_hash[next_closure_core]
+                    next_closure_id = closure_core_to_closure_id_hash[next_closure_key]
 
                 # 记录 LR(1) 项目集之间的前驱 / 后继关系
                 closure_relation.append((closure_id, next_symbol, next_closure_id))
 
                 # 将后继项目集闭包的核心项目元组添加到队列
-                if next_closure_id not in visited:
+                if next_closure_core not in visited:
                     queue.append((next_closure_id, next_closure_core))
-                    visited.add(next_closure_id)
+                    visited.add(next_closure_core)
 
     def new_closure_lr1(self, closure_core: Tuple[int]) -> Set[int]:
         """新版项目集闭包计算方法
