@@ -33,7 +33,7 @@ class Item0:
 
     Attributes
     ----------
-    next_lr0 : Optional[Item0]
+    next_lr0_id : Optional[Item0]
         连接到的后继项目对象
     """
 
@@ -54,7 +54,7 @@ class Item0:
     # -------------------- 项目的关联关系（节点出射边）--------------------
     # 能够连接到后继项目的符号名称（即 after_handle 中的第 1 个元素）
     next_symbol: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)
-    next_lr0: Optional["Item0"] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
+    next_lr0_id: Optional[int] = dataclasses.field(kw_only=True, hash=False, compare=False)  # 连接到的后继项目对象
 
     # -------------------- 项目的 SR 优先级、结合方向和 RR 优先级 --------------------
     sr_priority_idx: int = dataclasses.field(kw_only=True, hash=False, compare=False)  # 生成式的 SR 优先级序号（越大越优先）
@@ -265,7 +265,7 @@ class ParserLALR1(ParserBase):
                     action=product.action,
                     item_type=last_item_type,
                     next_symbol=None,  # 规约项目不存在后继项目
-                    next_lr0=None,  # 规约项目不存在后继项目
+                    next_lr0_id=None,  # 规约项目不存在后继项目
                     sr_priority_idx=product.sr_priority_idx,
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
@@ -274,6 +274,7 @@ class ParserLALR1(ParserBase):
 
             # 添加句柄在结束位置（最右侧）的项目（规约项目）
             lr0_id = len(lr0_list)
+            last_lr0_id = lr0_id
             last_item = Item0(
                 id=lr0_id,
                 nonterminal_id=product.nonterminal_id,
@@ -283,7 +284,7 @@ class ParserLALR1(ParserBase):
                 action=product.action,
                 item_type=last_item_type,
                 next_symbol=None,  # 规约项目不存在后继项目
-                next_lr0=None,  # 规约项目不存在后继项目
+                next_lr0_id=None,  # 规约项目不存在后继项目
                 sr_priority_idx=product.sr_priority_idx,
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
@@ -309,12 +310,13 @@ class ParserLALR1(ParserBase):
                     action=product.action,
                     item_type=ItemType.SHIFT,
                     next_symbol=product.symbol_id_list[i],
-                    next_lr0=last_item,
+                    next_lr0_id=last_lr0_id,
                     sr_priority_idx=product.sr_priority_idx,
                     sr_combine_type=product.sr_combine_type,
                     rr_priority_idx=product.rr_priority_idx
                 )
                 lr0_list.append(now_item)
+                last_lr0_id = lr0_id
                 last_item = now_item
 
             # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
@@ -335,7 +337,7 @@ class ParserLALR1(ParserBase):
                 action=product.action,
                 item_type=first_item_type,
                 next_symbol=product.symbol_id_list[0],
-                next_lr0=last_item,
+                next_lr0_id=last_lr0_id,
                 sr_priority_idx=product.sr_priority_idx,
                 sr_combine_type=product.sr_combine_type,
                 rr_priority_idx=product.rr_priority_idx
@@ -374,8 +376,8 @@ class ParserLALR1(ParserBase):
         """如果 LR(1) 项目不存在则构造 LR(1) 项目对象，返回直接返回构造的 LR(1) 项目对象的 ID"""
         lr0 = self.lr0_list[lr0_id]
 
-        if lr0.next_lr0 is not None:
-            next_lr1_id = self.create_lr1(lr0.next_lr0.id, lookahead)
+        if lr0.next_lr0_id is not None:
+            next_lr1_id = self.create_lr1(lr0.next_lr0_id, lookahead)
         else:
             next_lr1_id = None
 
