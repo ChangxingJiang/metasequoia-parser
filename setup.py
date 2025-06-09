@@ -7,8 +7,8 @@ with open("README.md", "r", encoding="UTF-8") as file:
 
 setup(
     name="metasequoia-parser",
-    version="0.1.0",
-    description="水杉语法解析器提供了 LR(0)、SLR、LR(1)、LALR(1) 四种解析器，以及根据语法自动编译 LALR(1) 解析器的 Python 代码的功能。",
+    version="0.2.0",
+    description="水杉解析器生成器：提供了 LR(0)、SLR、LR(1)、LALR(1) 四种解析器，以及 LALR(1) 解析器生成器，可以根据定义的语法自动生成 Python 代码。",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="changxing",
