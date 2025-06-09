@@ -14,15 +14,12 @@ __all__ = [
     "closure_item1"
 ]
 
-# 接受（ACCEPT）类型或规约（REDUCE）类型的集合
-ACCEPT_OR_REDUCE = {ItemType.ACCEPT, ItemType.REDUCE}
-
 
 def closure_item1(grammar: Grammar,
                   core_tuple: Tuple[Item1],
                   symbol_start_item0_list_hash: Dict[int, List[Item0]],
                   nonterminal_all_start_terminal: Dict[int, Set[int]]
-                  ) -> Set[Item1]:
+                  ) -> List[Item1]:
     # pylint: disable=R0912
     # pylint: disable=R0914
     """根据项目集核心项目元组（core_tuple）生成项目集闭包中包含的其他项目列表（item_list）
@@ -43,8 +40,6 @@ def closure_item1(grammar: Grammar,
     List[Item1]
         项目集闭包中包含的项目列表
     """
-    n_terminal = grammar.n_terminal  # 【性能】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
-
     # 初始化项目集闭包中包含的其他项目列表
     item_set: Set[Item1] = set()
 
@@ -52,12 +47,12 @@ def closure_item1(grammar: Grammar,
     visited_symbol_set = set()
     queue = collections.deque()
     for item1 in core_tuple:
-        if item1.item0.item_type in ACCEPT_OR_REDUCE:
+        if item1.item_type in {ItemType.ACCEPT, ItemType.REDUCE}:
             continue  # 如果核心项是规约项目，则不存在等价项目组，跳过该项目即可
 
         # 将句柄之后的符号列表 + 展望符添加到队列中
-        visited_symbol_set.add((item1.item0.after_handle, item1.lookahead))
-        queue.append((item1.item0.after_handle, item1.lookahead))
+        visited_symbol_set.add((item1.after_handle, item1.lookahead))
+        queue.append((item1.after_handle, item1.lookahead))
 
     # 广度优先搜索所有的等价项目组
     while queue:
@@ -65,8 +60,7 @@ def closure_item1(grammar: Grammar,
 
         # 如果开头符号是终结符，则不存在等价项目
         first_symbol = after_handle[0]
-        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-        if first_symbol < n_terminal:
+        if grammar.is_terminal(first_symbol) is True:
             continue
 
         sub_item_set = set()  # 当前项目组之后的所有可能的 lookahead
@@ -80,8 +74,7 @@ def closure_item1(grammar: Grammar,
                 next_symbol = after_handle[i]
 
                 # 如果遍历到的符号是终结符，则将该终结符添加为展望符，则标记 is_stop 并结束遍历
-                # 【性能】通过 next_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-                if next_symbol < n_terminal:
+                if grammar.is_terminal(next_symbol):
                     sub_item_set.add(Item1.create_by_item0(item0, next_symbol))
                     is_stop = True
                     break
@@ -109,13 +102,11 @@ def closure_item1(grammar: Grammar,
 
         # 将等价项目组中需要继续寻找等价项目的添加到队列
         for sub_item1 in sub_item_set:
-            after_handle = sub_item1.item0.after_handle
-            if not after_handle:
+            if len(sub_item1.after_handle) == 0:
                 continue  # 跳过匹配 %empty 的项目
 
-            lookahead = sub_item1.lookahead
-            if (after_handle, lookahead) not in visited_symbol_set:
-                visited_symbol_set.add((after_handle, lookahead))
-                queue.append((after_handle, lookahead))
+            if (sub_item1.after_handle, sub_item1.lookahead) not in visited_symbol_set:
+                visited_symbol_set.add((sub_item1.after_handle, sub_item1.lookahead))
+                queue.append((sub_item1.after_handle, sub_item1.lookahead))
 
-    return item_set
+    return list(item_set)

@@ -38,7 +38,6 @@ def cal_all_item0_list(grammar: Grammar) -> List[Item0]:
         # 如果为 %empty，则仅构造一个规约项目
         if len(product.symbol_id_list) == 0:
             item_list.append(Item0.create(
-                i0_id=0,
                 reduce_name=product.nonterminal_id,
                 before_handle=[],
                 after_handle=[],
@@ -54,7 +53,6 @@ def cal_all_item0_list(grammar: Grammar) -> List[Item0]:
 
         # 添加句柄在结束位置（最右侧）的项目（规约项目）
         last_item = Item0.create(
-            i0_id=0,
             reduce_name=product.nonterminal_id,
             before_handle=product.symbol_id_list,
             after_handle=[],
@@ -71,7 +69,6 @@ def cal_all_item0_list(grammar: Grammar) -> List[Item0]:
         # 从右向左依次添加句柄在中间位置（不是最左侧和最右侧）的项目（移进项目），并将上一个项目作为下一个项目的后继项目
         for i in range(len(product.symbol_id_list) - 1, 0, -1):
             now_item = Item0.create(
-                i0_id=0,
                 reduce_name=product.nonterminal_id,
                 before_handle=product.symbol_id_list[:i],
                 after_handle=product.symbol_id_list[i:],
@@ -88,7 +85,6 @@ def cal_all_item0_list(grammar: Grammar) -> List[Item0]:
 
         # 添加添加句柄在开始位置（最左侧）的项目（移进项目或入口项目）
         item_list.append(Item0.create(
-            i0_id=0,
             reduce_name=product.nonterminal_id,
             before_handle=[],
             after_handle=product.symbol_id_list,

@@ -68,14 +68,14 @@ def create_lr_parsing_table_use_lalr1(grammar: Grammar,
 
         # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
         for sub_item1 in item1_set.all_item_list:
-            if sub_item1.item0.successor_symbol is None:
-                reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.item0.nonterminal_id,
-                                             n_param=len(sub_item1.item0.before_handle),
-                                             reduce_function=sub_item1.item0.action)
+            if sub_item1.successor_symbol is None:
+                reduce_action = ActionReduce(reduce_nonterminal_id=sub_item1.nonterminal_id,
+                                             n_param=len(sub_item1.before_handle),
+                                             reduce_function=sub_item1.action)
                 position_reduce_list_hash[(status_id, sub_item1.lookahead)].append((
-                    sub_item1.item0.rr_priority_idx,  # RR 优先级
-                    sub_item1.item0.sr_priority_idx,  # SR 优先级
-                    sub_item1.item0.sr_combine_type,  # SR 合并顺序
+                    sub_item1.rr_priority_idx,  # RR 优先级
+                    sub_item1.sr_priority_idx,  # SR 优先级
+                    sub_item1.sr_combine_type,  # SR 合并顺序
                     reduce_action
                 ))
 

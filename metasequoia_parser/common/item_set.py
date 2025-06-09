@@ -3,7 +3,7 @@
 """
 
 import dataclasses
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Tuple
 
 from metasequoia_parser.common.item import Item0, Item1
 
@@ -56,24 +56,22 @@ class Item0Set:
 class Item1Set:
     """提前查看下一个字符的项目集闭包类：适用于 LR(1) 解析器和 LALR(1) 解析器"""
 
-    sid: int = dataclasses.field(kw_only=True)
     core_tuple: Tuple[Item1, ...] = dataclasses.field(kw_only=True)  # 核心项目
-    other_item1_set: Set[Item1] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
+    item_list: List[Item1] = dataclasses.field(kw_only=True)  # 项目集闭包中除核心项目外的其他等价项目
     successor_hash: Dict[int, "Item1Set"] = dataclasses.field(kw_only=True, default_factory=lambda: {})  # 后继项目的关联关系
 
     @staticmethod
-    def create(sid: int, core_list: Tuple[Item1], other_item1_set: Set[Item1]) -> "Item1Set":
+    def create(core_list: Tuple[Item1], item_list: List[Item1]) -> "Item1Set":
         """项目集闭包对象的构造方法"""
         return Item1Set(
-            sid=sid,
             core_tuple=core_list,
-            other_item1_set=other_item1_set
+            item_list=item_list
         )
 
     @property
     def all_item_list(self) -> List[Item1]:
         """返回项目集中的所有项目的列表，包括核心项目和其他等价项目；在输出的列表中，第 0 个项目为核心项目"""
-        return list(self.core_tuple) + list(self.other_item1_set)
+        return list(self.core_tuple) + self.item_list
 
     def set_successor(self, symbol: int, successor: "Item1Set"):
         """设置 symbol 对应的后继项目"""

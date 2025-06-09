@@ -4,7 +4,7 @@
 
 from typing import List, NewType
 
-from metasequoia_parser.common import ItemBase
+from metasequoia_parser.common import ItemBase, ItemType
 from metasequoia_parser.exceptions import ParserError
 
 __all__ = [
@@ -29,7 +29,7 @@ def cal_init_item_from_item_list(item_list: List[T]) -> T:
         入口项目
     """
     for item in item_list:
-        if item.is_init():
+        if item.item_type == ItemType.INIT:
             return item
     raise ParserError("未从项目列表中获取到 INIT 项目")
 
@@ -48,6 +48,6 @@ def cal_accept_item_from_item_list(item_list: List[T]) -> T:
         接受项目
     """
     for item in item_list:
-        if item.is_accept():
+        if item.item_type == ItemType.ACCEPT:
             return item
     raise ParserError("未从项目列表中获取到 ACCEPT 项目")
