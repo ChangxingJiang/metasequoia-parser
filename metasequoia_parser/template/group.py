@@ -1,6 +1,7 @@
 """
 模板备选规则
 """
+
 import enum
 from typing import Any, Optional, Union
 
@@ -8,17 +9,9 @@ from metasequoia_parser.common.grammar import GGroup, GRule
 from metasequoia_parser.template import action
 
 __all__ = [
-    "EMPTY_NULL",
-    "EMPTY_LIST",
     "create_opt_group",
     "create_multi_group",
 ]
-
-# 不匹配的语义组（即 Bison 的 %empty）
-EMPTY_NULL = GRule.create(symbols=[], action=action.RETURN_NULL)
-
-# 不匹配的语义组（即 Bison 的 %empty）
-EMPTY_LIST = GRule.create(symbols=[], action=action.RETURN_EMPTY_LIST)
 
 
 def create_opt_group(opt_name: str, group: Union[str, enum.IntEnum], empty_default: Optional[Any] = None) -> GGroup:

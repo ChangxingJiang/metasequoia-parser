@@ -3,5 +3,6 @@
 """
 
 from metasequoia_parser.template import action
-from metasequoia_parser.template import group
 from metasequoia_parser.template import charset
+from metasequoia_parser.template import group
+from metasequoia_parser.template import rule
