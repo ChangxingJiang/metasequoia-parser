@@ -758,31 +758,27 @@ class ParserLALR1(ParserBase):
                                                  n_param=len(lr0.before_handle),
                                                  reduce_function=lr0.action)
 
-                    # 处理 规约/规约 冲突：选择 RR 优先级最大的规约行为
-                    if lr0.rr_priority_idx > self.lr_rr_priority[closure_id][lookahead]:
-                        self.lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # RR 优先级
+                    # 处理 规约/规约 冲突：如果 RR 优先级小于之前已经处理的规约行为，则不再处理当前规约行为
+                    if lr0.rr_priority_idx <= self.lr_rr_priority[closure_id][lookahead]:
+                        continue
+                    self.lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # 更新 RR 优先级
 
-                        # 处理 移进/规约 冲突：如果规约优先级大于移进优先级，则优先执行规约行为
-                        # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
-                        if lr0.sr_priority_idx > self.lr_sr_priority[closure_id][lookahead]:
+                    # 处理 移进/规约 冲突：如果规约优先级大于移进优先级，则优先执行规约行为
+                    # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
+                    if lr0.sr_priority_idx > self.lr_sr_priority[closure_id][lookahead]:
+                        self.lr_table[closure_id][lookahead] = reduce_action
+                        self.lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
+                    # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一级终结符的 SR 优先级，则根据该符号的结合方向计算移进行为 SR 结合顺序
+                    elif lr0.sr_priority_idx == self.lr_sr_priority[closure_id][lookahead]:
+                        shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(lookahead)
+                        if shift_sr_combine_type == CombineType.LEFT:
+                            # 如果结合方向为从左到右，则进行规约
                             self.lr_table[closure_id][lookahead] = reduce_action
-                            self.lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
-                        elif lr0.sr_priority_idx < self.lr_sr_priority[closure_id][lookahead]:
-                            # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进
-                            pass
-                        else:
-                            # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一级终结符的 SR 优先级，则根据该符号的
-                            # 结合方向计算移进行为 SR 结合顺序
-                            shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(lookahead)
-                            if shift_sr_combine_type == CombineType.LEFT:
-                                # 如果结合方向为从左到右，则进行规约
-                                self.lr_table[closure_id][lookahead] = reduce_action
-                            elif shift_sr_combine_type == CombineType.RIGHT:
-                                # 如果结合方向为从右到左，则进行移进
-                                pass
-                            else:
-                                # 如果既不是左结合也不是右结合，则抛出异常
-                                self.lr_table[closure_id][lookahead] = ActionError()
+                        elif shift_sr_combine_type != CombineType.RIGHT:
+                            # 如果既不是左结合也不是右结合，则抛出异常
+                            self.lr_table[closure_id][lookahead] = ActionError()
+                        # 如果结合方向为从右到左，则进行移进
+                    # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进（不需要进行额外处理）
 
         # 当接受项目集闭包接收到结束符时，填充 Accept 行为
         self.lr_table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
