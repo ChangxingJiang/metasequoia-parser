@@ -180,9 +180,9 @@ class ParserLALR1(ParserBase):
         self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
-        LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
+        LOGGER.info("[7 / 10 | S] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
         self.create_closure_relation()
-        LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系结束")
+        LOGGER.info("[7 / 10 | E] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
@@ -587,55 +587,6 @@ class ParserLALR1(ParserBase):
 
             for lr0_id in lr0_id_set:
                 lr1_id_set.add(self.create_lr1(lr0_id, lookahead))
-        return lr1_id_set
-
-    def bfs_closure(self, closure_core: Tuple[int]) -> Set[int]:
-        # pylint: disable=R0912
-        # pylint: disable=R0914
-        """广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
-
-        返回 LR(1) 项目的 ID 的集合
-
-        【性能设计】这里采用广度优先搜索，是因为当 closure_core 中包含多个 LR(1) 项目时，各个 LR(1) 项目的等价 LR(1) 项目之间往往会存在大量相同
-        的元素；如果采用深度优先搜索，那么在查询缓存、合并结果、检查搜索条件是否相同时，会进行非常多的 Tuple[Item1, ...] 比较，此时会消耗更多的性
-        能。然而，不同 closure_core 之间，相同的 LR(1) 项目的数量可能反而较少。因此，虽然广度优先搜索在时间复杂度上劣于深度优先搜索，但是经过测试在
-        当前场景下的性能是优于深度优先搜索的。
-
-        Parameters
-        ----------
-        closure_core : Tuple[int]
-            项目集闭包的核心项目（最高层级项目）
-
-        Returns
-        -------
-        List[int]
-            项目集闭包中包含的项目列表
-        """
-        lr1_id_to_cid_hash = self.lr1_id_to_cid_hash  # 【性能设计】将实例变量缓存为局部遍历那个
-
-        # 初始化项目集闭包中包含的其他项目列表
-        lr1_id_set: Set[int] = set()
-
-        # 初始化广度优先搜索的第 1 批节点
-        visited_cid_set = {lr1_id_to_cid_hash[lr1_id] for lr1_id in closure_core}
-        queue = collections.deque(visited_cid_set)
-
-        # 广度优先搜索所有的等价项目组
-        while queue:
-            # 计算单层的等价 LR(1) 项目
-            sub_lr1_id_set = self.compute_single_level_closure(queue.popleft())
-
-            # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            lr1_id_set |= sub_lr1_id_set
-
-            # 将等价项目组中需要继续寻找等价项目的添加到队列
-            # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
-            for lr1_id in sub_lr1_id_set:
-                new_cid = lr1_id_to_cid_hash[lr1_id]
-                if new_cid not in visited_cid_set:
-                    visited_cid_set.add(new_cid)
-                    queue.append(new_cid)
-
         return lr1_id_set
 
     def compute_single_level_closure(self, cid: int) -> Set[int]:
