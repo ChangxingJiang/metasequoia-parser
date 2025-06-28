@@ -784,10 +784,9 @@ class ParserLALR1(ParserBase):
 
         # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
         n_status = len(self.closure_id_set)
-        table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
-
-        position_shift_hash = {}  # ACTION + GOTO 表位置到移进操作列表的哈希映射（每个位置至多有一个 Shift 行为）
-        position_reduce_list_hash = collections.defaultdict(list)  # ACTION + GOTO 表位置到规约操作列表的哈希映射（每个位置可以有多个 Reduce 行为）
+        lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
+        lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
+        lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
 
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
@@ -796,10 +795,12 @@ class ParserLALR1(ParserBase):
             for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
                 if next_symbol < n_terminal:
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
-                    position_shift_hash[(closure_id, next_symbol)] = ActionShift(status=next_closure_id)
+                    lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
+                    lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
+                    # position_shift_hash[(closure_id, next_symbol)] = ActionShift(status=next_closure_id)
                 else:
                     # 后继项目为非终结符，填充 GOTO 表
-                    table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
+                    lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for lr1_id in closure_id_to_closure_set_hash[closure_id]:
@@ -810,66 +811,34 @@ class ParserLALR1(ParserBase):
                     reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                                  n_param=len(lr0.before_handle),
                                                  reduce_function=lr0.action)
-                    position_reduce_list_hash[(closure_id, lookahead)].append((
-                        lr0.rr_priority_idx,  # RR 优先级
-                        lr0.sr_priority_idx,  # SR 优先级
-                        lr0.sr_combine_type,  # SR 合并顺序
-                        reduce_action
-                    ))
 
-        # ------------------------------ 处理 规约/规约冲突 ------------------------------
-        position_reduce_hash = {}  # 解除 规约/规约冲突 后的每个位置的 Reduce 行为（至多有 1 个）
-        for position, reduce_list in position_reduce_list_hash.items():
-            reduce_list.sort(key=lambda x: x[0], reverse=True)  # 根据 RR 优先级倒序排序
-            position_reduce_hash[position] = reduce_list[0]  # 选择 RR 优先级最大的 Reduce 行为
+                    # 处理 规约/规约 冲突：选择 RR 优先级最大的规约行为
+                    if lr0.rr_priority_idx > lr_rr_priority[closure_id][lookahead]:
+                        lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # RR 优先级
 
-        # ------------------------------ 处理 移进/规约冲突 ------------------------------
-        shift_position_set = set(position_shift_hash.keys())
-        reduce_position_set = set(position_reduce_hash.keys())
-
-        # 如果只有移进行为，没有移进/规约冲突，则直接写入移进行为
-        for position in shift_position_set - reduce_position_set:
-            status_id, next_symbol = position
-            action_shift = position_shift_hash[position]
-            table[status_id][next_symbol] = action_shift
-
-        # 如果只有规约行为，没有移进/规约冲突，则直接写入规约行为
-        for position in reduce_position_set - shift_position_set:
-            status_id, next_symbol = position
-            _, _, _, action_reduce = position_reduce_hash[position]
-            table[status_id][next_symbol] = action_reduce
-
-        # 如果既有移进行为、又有规约行为，存在移进/规约冲突，则进入处理逻辑
-        for position in shift_position_set & reduce_position_set:
-            status_id, next_symbol = position
-
-            # 获取移进行为信息
-            action_shift = position_shift_hash[position]
-            shift_sr_priority_idx = self.grammar.get_terminal_sr_priority_idx(next_symbol)  # 移进行为 SR 优先级
-            shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(next_symbol)  # 移进行为 SR 结合顺序
-
-            # 获取规约行为信息
-            _, reduce_sr_priority_idx, _, action_reduce = position_reduce_hash[position]
-
-            if reduce_sr_priority_idx > shift_sr_priority_idx:
-                # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
-                table[status_id][next_symbol] = action_reduce
-            elif reduce_sr_priority_idx < shift_sr_priority_idx:
-                # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进
-                table[status_id][next_symbol] = action_shift
-            else:  # reduce_sr_priority_idx == shift_sr_priority_idx
-                # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一个终结符的 SR 优先级，则根据该符号的结合方向
-                if shift_sr_combine_type == CombineType.LEFT:
-                    # 如果结合方向为从左到右，则进行规约
-                    table[status_id][next_symbol] = action_reduce
-                elif shift_sr_combine_type == CombineType.RIGHT:
-                    # 如果结合方向为从右到左，则进行移进
-                    table[status_id][next_symbol] = action_shift
-                else:
-                    # 如果既不是左结合也不是右结合，则抛出异常
-                    table[status_id][next_symbol] = ActionError()
+                        # 处理 移进/规约 冲突：如果规约优先级大于移进优先级，则优先执行规约行为
+                        # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
+                        if lr0.sr_priority_idx > lr_sr_priority[closure_id][lookahead]:
+                            lr_table[closure_id][lookahead] = reduce_action
+                            lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
+                        elif lr0.sr_priority_idx < lr_sr_priority[closure_id][lookahead]:
+                            # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进
+                            pass
+                        else:
+                            # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一级终结符的 SR 优先级，则根据该符号的
+                            # 结合方向计算移进行为 SR 结合顺序
+                            shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(lookahead)
+                            if shift_sr_combine_type == CombineType.LEFT:
+                                # 如果结合方向为从左到右，则进行规约
+                                lr_table[closure_id][lookahead] = reduce_action
+                            elif shift_sr_combine_type == CombineType.RIGHT:
+                                # 如果结合方向为从右到左，则进行移进
+                                pass
+                            else:
+                                # 如果既不是左结合也不是右结合，则抛出异常
+                                lr_table[closure_id][lookahead] = ActionError()
 
         # 当接受项目集闭包接收到结束符时，填充 Accept 行为
-        table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
+        lr_table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
 
-        return table
+        return lr_table
