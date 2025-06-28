@@ -172,6 +172,13 @@ class ParserLALR1(ParserBase):
         LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
+        # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
+        self.n_status = len(self.closure_id_to_closure_set_hash)
+        self.lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol
+                                                         for _ in range(self.n_status)]
+        self.lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+        self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
         self.closure_next_relation = collections.defaultdict(dict)  # LR(1) 项目集闭包之间的前驱 / 后继关系
@@ -192,7 +199,8 @@ class ParserLALR1(ParserBase):
 
         # 构造 ACTION 表 + GOTO 表
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
-        self.table = self.create_lr_parsing_table_use_lalr1()
+        self.create_lr_parsing_table_use_lalr1()
+        self.table = self.lr_table
         LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
 
         if self.profile:
@@ -761,7 +769,7 @@ class ParserLALR1(ParserBase):
         for closure_id, next_symbol, next_closure_id in self.closure_relation:
             closure_next_relation[closure_id][next_symbol] = next_closure_id
 
-    def create_lr_parsing_table_use_lalr1(self) -> List[List[Callable]]:
+    def create_lr_parsing_table_use_lalr1(self) -> None:
         # pylint: disable=R0801
         # pylint: disable=R0912
         # pylint: disable=R0914
@@ -782,24 +790,20 @@ class ParserLALR1(ParserBase):
         n_terminal = self.grammar.n_terminal
 
         # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
-        n_status = len(self.closure_id_to_closure_set_hash)
-        lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
-        lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
-        lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
 
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
-        for closure_id in range(n_status):
+        for closure_id in range(self.n_status):
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
             for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
                 if next_symbol < n_terminal:
                     # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
-                    lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
-                    lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
+                    self.lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
+                    self.lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
                     # position_shift_hash[(closure_id, next_symbol)] = ActionShift(status=next_closure_id)
                 else:
                     # 后继项目为非终结符，填充 GOTO 表
-                    lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
+                    self.lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
 
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for lr1_id in closure_id_to_closure_set_hash[closure_id]:
@@ -812,15 +816,15 @@ class ParserLALR1(ParserBase):
                                                  reduce_function=lr0.action)
 
                     # 处理 规约/规约 冲突：选择 RR 优先级最大的规约行为
-                    if lr0.rr_priority_idx > lr_rr_priority[closure_id][lookahead]:
-                        lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # RR 优先级
+                    if lr0.rr_priority_idx > self.lr_rr_priority[closure_id][lookahead]:
+                        self.lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # RR 优先级
 
                         # 处理 移进/规约 冲突：如果规约优先级大于移进优先级，则优先执行规约行为
                         # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
-                        if lr0.sr_priority_idx > lr_sr_priority[closure_id][lookahead]:
-                            lr_table[closure_id][lookahead] = reduce_action
-                            lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
-                        elif lr0.sr_priority_idx < lr_sr_priority[closure_id][lookahead]:
+                        if lr0.sr_priority_idx > self.lr_sr_priority[closure_id][lookahead]:
+                            self.lr_table[closure_id][lookahead] = reduce_action
+                            self.lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
+                        elif lr0.sr_priority_idx < self.lr_sr_priority[closure_id][lookahead]:
                             # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进
                             pass
                         else:
@@ -829,15 +833,13 @@ class ParserLALR1(ParserBase):
                             shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(lookahead)
                             if shift_sr_combine_type == CombineType.LEFT:
                                 # 如果结合方向为从左到右，则进行规约
-                                lr_table[closure_id][lookahead] = reduce_action
+                                self.lr_table[closure_id][lookahead] = reduce_action
                             elif shift_sr_combine_type == CombineType.RIGHT:
                                 # 如果结合方向为从右到左，则进行移进
                                 pass
                             else:
                                 # 如果既不是左结合也不是右结合，则抛出异常
-                                lr_table[closure_id][lookahead] = ActionError()
+                                self.lr_table[closure_id][lookahead] = ActionError()
 
         # 当接受项目集闭包接收到结束符时，填充 Accept 行为
-        lr_table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
-
-        return lr_table
+        self.lr_table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
