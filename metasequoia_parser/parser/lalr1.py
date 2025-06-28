@@ -172,7 +172,7 @@ class ParserLALR1(ParserBase):
         LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
-        # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
+        # 初始化 LR 分析表（ACTION + GOTO）：第 1 维是状态 ID，第 2 维是符号 ID
         self.n_status = len(self.closure_id_to_closure_set_hash)
         self.lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol
                                                          for _ in range(self.n_status)]
@@ -181,7 +181,6 @@ class ParserLALR1(ParserBase):
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系开始")
-        self.closure_next_relation = collections.defaultdict(dict)  # LR(1) 项目集闭包之间的前驱 / 后继关系
         self.create_closure_relation()
         LOGGER.info("[7 / 10] 构造 LR(1) 项目集之间的前驱 / 后继关系结束")
 
@@ -765,9 +764,17 @@ class ParserLALR1(ParserBase):
 
     def create_closure_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
-        closure_next_relation = self.closure_next_relation
+        n_terminal = self.grammar.n_terminal
+
+        # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
         for closure_id, next_symbol, next_closure_id in self.closure_relation:
-            closure_next_relation[closure_id][next_symbol] = next_closure_id
+            if next_symbol < n_terminal:
+                # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
+                self.lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
+                self.lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
+            else:
+                # 后继项目为非终结符，填充 GOTO 表
+                self.lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
 
     def create_lr_parsing_table_use_lalr1(self) -> None:
         # pylint: disable=R0801
@@ -782,29 +789,14 @@ class ParserLALR1(ParserBase):
         table : List[List[Callable]]
             ACTION 表 + GOTO 表
         """
-        closure_next_relation = self.closure_next_relation
         closure_id_to_closure_set_hash = self.closure_id_to_closure_set_hash
         lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
         lr1_id_to_lookahead_hash = self.lr1_id_to_lookahead_hash
         lr0_list = self.lr0_list
-        n_terminal = self.grammar.n_terminal
-
-        # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
 
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
         for closure_id in range(self.n_status):
-            # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
-            for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
-                if next_symbol < n_terminal:
-                    # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
-                    self.lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
-                    self.lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
-                    # position_shift_hash[(closure_id, next_symbol)] = ActionShift(status=next_closure_id)
-                else:
-                    # 后继项目为非终结符，填充 GOTO 表
-                    self.lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
-
             # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
             for lr1_id in closure_id_to_closure_set_hash[closure_id]:
                 lr0_id = lr1_id_to_lr0_id_hash[lr1_id]
