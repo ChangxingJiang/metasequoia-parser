@@ -168,9 +168,8 @@ class ParserLALR1(ParserBase):
         # 通过广度优先搜索，查找所有 LR(1) 项目集闭包及其之间的关联关系
         self.bfs_search_all_closure()
 
-        self.closure_id_set = set(range(len(self.closure_id_to_closure_set_hash)))  # 有效 SID1 的集合
         LOGGER.info(f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
-        LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_set)}")
+        LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
         LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
@@ -783,14 +782,14 @@ class ParserLALR1(ParserBase):
         n_terminal = self.grammar.n_terminal
 
         # 初始化 ACTION 二维表和 GOTO 二维表：第 1 维是状态 ID，第 2 维是符号 ID
-        n_status = len(self.closure_id_set)
+        n_status = len(self.closure_id_to_closure_set_hash)
         lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol for _ in range(n_status)]
         lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
         lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(n_status)]
 
         # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
         # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
-        for closure_id in self.closure_id_set:
+        for closure_id in range(n_status):
             # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
             for next_symbol, next_closure_id in closure_next_relation[closure_id].items():
                 if next_symbol < n_terminal:
