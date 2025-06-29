@@ -188,13 +188,11 @@ class ParserLALR1(ParserBase):
                     f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
 
         LOGGER.info("[Step 9] START: 根据初始 LR(0) 项目和接受 LR(0) 项目，计算初始状态 ID 和接受状态 ID")
-        init_closure_core = (self.init_lr1_id,)
-        init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
         accept_lr1_core = self.accept_lr0_id * (self.grammar.n_terminal + 1) + self.grammar.end_terminal
         accept_lr1_id = self.lr1_core_to_lr1_id_hash[accept_lr1_core]
         accept_closure_core = (accept_lr1_id,)
         accept_closure_key = self.get_closure_key_by_clsure_core(accept_closure_core)
-        self.init_status_id = self.closure_key_to_closure_id_hash[init_closure_key]
+        self.init_status_id = self.closure_key_to_closure_id_hash[(self.init_lr0_id,)]
         self.accept_status_id = self.closure_key_to_closure_id_hash[accept_closure_key]
         LOGGER.info("[Step 9] END: "
                     f"初始状态 ID = {self.init_status_id}, "
