@@ -6,6 +6,7 @@ import cProfile
 import collections
 import dataclasses
 import enum
+from collections import defaultdict
 from functools import lru_cache
 from itertools import chain
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -134,6 +135,7 @@ class ParserLALR1(ParserBase):
 
         LOGGER.info("[Step 4] START: 根据所有 LR(0) 项目，广度优先搜索计算所有合并后的项目集闭包的核心 LR(0) 项目元组")
         self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
+        self.closure_relation_2: Dict[int, Dict[int]] = defaultdict(dict)
         self.closure_key_to_closure_id_hash = self.cal_core_to_item0_set_hash()
         LOGGER.info(f"[Step 4] END: "
                     f"合并后项目集闭包数量 = {len(self.closure_key_to_closure_id_hash)}")
@@ -183,6 +185,7 @@ class ParserLALR1(ParserBase):
 
         # 通过广度优先搜索，查找所有 LR(1) 项目集闭包及其之间的关联关系
         self.bfs_search_all_closure()
+        # self.bfs_search_all_closure_new()
 
         LOGGER.info(f"[Step 8] END:"
                     f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
@@ -460,7 +463,6 @@ class ParserLALR1(ParserBase):
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        closure_key_to_closure_id_hash = self.closure_key_to_closure_id_hash
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
@@ -500,14 +502,54 @@ class ParserLALR1(ParserBase):
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             for next_symbol, sub_lr1_id_set in next_group.items():
                 next_closure_core: Tuple[int, ...] = tuple(sorted(set(sub_lr1_id_set)))
-                next_closure_key: Tuple[int, ...] = self.get_closure_key_by_clsure_core(next_closure_core)
-                assert next_closure_key in closure_key_to_closure_id_hash, f"{next_closure_key} 未被 LR(0) 计算"
-                next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
+                next_closure_id = self.closure_relation_2[closure_id][next_symbol]
 
                 # 将后继项目集闭包的核心项目元组添加到队列
                 if next_closure_core not in visited:
                     queue.append((next_closure_id, next_closure_core))
                     visited.add(next_closure_core)
+
+    def bfs_search_all_closure_new(self) -> None:
+        """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
+
+        # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
+        closure_key_to_closure_id_hash = self.closure_key_to_closure_id_hash
+        lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
+
+        # 根据入口项的 LR(0) 项构造 LR(1) 项
+        self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
+        # init_closure_core = (self.init_lr1_id,)
+
+        # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
+        visited = {(0, self.init_lr1_id)}
+        queue = collections.deque([(0, self.init_lr1_id)])
+
+        # 广度优先搜索遍历所有项目集闭包
+        idx = 0
+        while queue:
+            closure_id, lr1_id = queue.popleft()
+
+            idx += 1
+
+            self.add_lr1_to_closure(closure_id, lr1_id)
+
+            if self.debug is True and idx % 1000 == 0:
+                LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
+                            f"已处理={idx}, "
+                            f"队列中={len(queue)}, "
+                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}")
+
+            # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
+            closure_other = self.new_closure_lr1((lr1_id,))
+
+            # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
+            for lr1_id in closure_other:
+                next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[lr1_id]
+                if next_symbol is not None:
+                    next_closure_id = self.closure_relation_2[closure_id][next_symbol]
+                    if (next_closure_id, next_lr1_id) not in visited:
+                        visited.add((next_closure_id, next_lr1_id))
+                        queue.append((next_closure_id, next_lr1_id))
 
     def add_lr1_to_closure(self, closure_id: int, lr1_id: int) -> None:
         """将 LR(1) 项目添加到项目集闭包"""
@@ -793,6 +835,7 @@ class ParserLALR1(ParserBase):
 
                 # 记录 LR(1) 项目集闭包之间的前驱 / 后继关系
                 closure_relation.append((closure_id, next_symbol, next_closure_id))
+                self.closure_relation_2[closure_id][next_symbol] = next_closure_id
 
                 # 将后继项目集闭包的核心项目元组添加到队列
                 if next_closure_key not in visited:
