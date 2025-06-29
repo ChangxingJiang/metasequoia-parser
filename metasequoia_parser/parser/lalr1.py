@@ -135,6 +135,7 @@ class ParserLALR1(ParserBase):
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
 
         LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
+        self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
         self.closure_key_to_closure_id_hash = self.cal_core_to_item0_set_hash()
         LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
 
@@ -145,6 +146,11 @@ class ParserLALR1(ParserBase):
         self.lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
         self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
 
+        # 构造 LR(1) 项目集之间的前驱 / 后继关系
+        LOGGER.info("[5 / 10 | S] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
+        self.create_closure_relation()
+        LOGGER.info("[5 / 10 | E] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
+
         # 计算所有涉及的非终结符的符号 ID 的列表（之所以不使用语法中所有符号的列表，是因为部分符号可能没有被实际引用）
         nonterminal_id_list = list({lr0.nonterminal_id for lr0 in self.lr0_list})
 
@@ -152,8 +158,7 @@ class ParserLALR1(ParserBase):
         self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_id_list)
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
-        LOGGER.info("[5 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
-        self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
+        LOGGER.info("[6 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.closure_id_to_closure_set_hash: List[Set[int]] = [set() for _ in range(self.n_status)]
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
@@ -180,12 +185,7 @@ class ParserLALR1(ParserBase):
 
         LOGGER.info(f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
         LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
-        LOGGER.info("[5 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
-
-        # 构造 LR(1) 项目集之间的前驱 / 后继关系
-        LOGGER.info("[7 / 10 | S] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
-        self.create_closure_relation()
-        LOGGER.info("[7 / 10 | E] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
+        LOGGER.info("[6 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
         # 计算入口 LR(1) 项目集对应的状态 ID
         LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
@@ -464,15 +464,11 @@ class ParserLALR1(ParserBase):
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         closure_key_to_closure_id_hash = self.closure_key_to_closure_id_hash
         closure_id_to_closure_set_hash = self.closure_id_to_closure_set_hash
-        closure_relation = self.closure_relation
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
-        # init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
-        # closure_key_to_closure_id_hash[init_closure_key] = 0
-        closure_id_to_closure_set_hash.append(set())
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
         visited = {init_closure_core}
@@ -513,9 +509,6 @@ class ParserLALR1(ParserBase):
                 next_closure_key: Tuple[int, ...] = self.get_closure_key_by_clsure_core(next_closure_core)
                 assert next_closure_key in closure_key_to_closure_id_hash, f"{next_closure_key} 未被 LR(0) 计算"
                 next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
-
-                # 记录 LR(1) 项目集之间的前驱 / 后继关系
-                closure_relation.append((closure_id, next_symbol, next_closure_id))
 
                 # 将后继项目集闭包的核心项目元组添加到队列
                 if next_closure_core not in visited:
@@ -790,6 +783,7 @@ class ParserLALR1(ParserBase):
         Dict[Item0, Item0Set]
             核心项目到项目集闭包的映射（项目集闭包中包含项目列表，但不包含项目闭包之间关联关系）
         """
+        closure_relation = self.closure_relation
 
         # 将入口项目添加到广度优先搜索的队列中
         init_closure_core = (self.init_lr0_id,)
@@ -814,8 +808,7 @@ class ParserLALR1(ParserBase):
 
                 # 获取核心项目句柄之后的第一个符号
                 next_symbol = lr0.after_handle[0]
-                if next_symbol is not None:
-                    next_group[next_symbol].append(lr0.next_lr0_id)
+                next_group[next_symbol].append(lr0.next_lr0_id)
 
             # 获取每个项目的作为后继项目集闭包的核心项目
             for next_symbol, sub_lr0_id_list in next_group.items():
@@ -825,6 +818,9 @@ class ParserLALR1(ParserBase):
                     closure_key_to_closure_id_hash[next_closure_key] = next_closure_id
                 else:
                     next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
+
+                # 记录 LR(1) 项目集闭包之间的前驱 / 后继关系
+                closure_relation.append((closure_id, next_symbol, next_closure_id))
 
                 # 将后继项目集闭包的核心项目元组添加到队列
                 if next_closure_key not in visited:
