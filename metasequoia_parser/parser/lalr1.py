@@ -112,53 +112,55 @@ class ParserLALR1(ParserBase):
         # - LR(1) 项目核心元组包括指向的 LR(0) 项目 ID 和展望符
         self.lr1_core_to_lr1_id_hash: Dict[int, int] = {}
 
-        # 根据文法计算所有项目（Item0 对象），并生成项目之间的后继关系
-        LOGGER.info("[1 / 10] 计算 Item0 对象开始")
+        LOGGER.info("[Step 1] START: 根据文法规则，构造所有的 LR(0) 项目及之间的关系")
         self.after_handle_to_ah_id_hash: Dict[Tuple[int, ...], int] = {}  # 句柄之后的符号列表到唯一 ID 的映射
         self.ah_id_to_after_handle_hash: List[Tuple[int, ...]] = []  # 唯一 ID 到句柄之后的符号列表的映射
         self.cal_all_lr0_list()
-        LOGGER.info(f"LR(0) 项目数量 = {len(self.lr0_list)}")
-        LOGGER.info(f"句柄之后的符号元组数量 = {len(self.after_handle_to_ah_id_hash)}")
-        LOGGER.info(f"[1 / 10] 计算 Item0 对象结束")
+        LOGGER.info(f"[Step 1] END: "
+                    f"LR(0) 项目数量 = {len(self.lr0_list)}, "
+                    f"句柄之后的符号元组数量 = {len(self.after_handle_to_ah_id_hash)}")
 
-        # 构造每个非终结符到其初始项目（句柄在最左侧）的 LR(0) 项目，即每个备选规则的初始项目的列表的映射表
-        # 根据所有项目的列表，构造每个非终结符到其初始项目（句柄在最左侧）列表的映射表
-        LOGGER.info("[2 / 10] 构造非终结符到其初始项目列表的映射表开始")
+        LOGGER.info("[Step 2] START: 根据所有 LR(0) 项目，构造每个终结符到其初始项目的映射")
         self.nonterminal_id_to_start_lr0_id_list_hash = self.cal_nonterminal_id_to_start_lr0_id_hash()
-        LOGGER.info(f"[2 / 10] 构造非终结符到其初始项目列表的映射表结束 "
-                    f"(映射表元素数量 = {len(self.nonterminal_id_to_start_lr0_id_list_hash)})")
+        LOGGER.info(f"[Step 2] END: "
+                    f"映射表元素数量 = {len(self.nonterminal_id_to_start_lr0_id_list_hash)}")
 
-        # 获取入口、接受 LR(0) 项目 ID
-        LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 开始")
+        LOGGER.info("[Step 3] START: 根据所有 LR(0) 项目，获取初始 LR(0) 项目和接受 LR(0) 项目")
         self.init_lr0_id = self.get_init_lr0_id()
         self.accept_lr0_id = self.get_accept_lr0_id()
-        LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
+        LOGGER.info("[Step 3] END: "
+                    f"初始 LR(0) 项目 ID = {self.init_lr0_id}, "
+                    f"接受 LR(0) 项目 ID = {self.accept_lr0_id}")
 
-        LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
+        LOGGER.info("[Step 4] START: 根据所有 LR(0) 项目，广度优先搜索计算所有合并后的项目集闭包的核心 LR(0) 项目元组")
         self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
         self.closure_key_to_closure_id_hash = self.cal_core_to_item0_set_hash()
-        LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
+        LOGGER.info(f"[Step 4] END: "
+                    f"合并后项目集闭包数量 = {len(self.closure_key_to_closure_id_hash)}")
 
+        LOGGER.info("[Step 5] START: 根据合并后项目集闭包的数量，初始化 LR 分析表")
         # 初始化 LR 分析表（ACTION + GOTO）：第 1 维是状态 ID，第 2 维是符号 ID
         self.n_status = len(self.closure_key_to_closure_id_hash)
         self.lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol
                                                          for _ in range(self.n_status)]
         self.lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
         self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+        LOGGER.info("[Step 5] END")
 
-        # 构造 LR(1) 项目集之间的前驱 / 后继关系
-        LOGGER.info("[5 / 10 | S] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
+        LOGGER.info("[Step 6] START : 根据项目集闭包之间的前驱 / 后继关系，填写 LR 分析表中的 Action 行为和 Goto 行为")
         self.create_closure_relation()
-        LOGGER.info("[5 / 10 | E] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
+        LOGGER.info("[Step 6] END")
 
+        LOGGER.info("[Step 7] START: 根据文法规则，计算所有非终结符中可能的开头终结符")
         # 计算所有涉及的非终结符的符号 ID 的列表（之所以不使用语法中所有符号的列表，是因为部分符号可能没有被实际引用）
         nonterminal_id_list = list({lr0.nonterminal_id for lr0 in self.lr0_list})
-
         # 计算每个非终结符中，所有可能的开头终结符
         self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_id_list)
+        LOGGER.info("[Step 7] END")
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
-        LOGGER.info("[6 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
+        LOGGER.info(
+            "[Step 8] START: 根据所有 LR(0) 项目、初始 LR(0) 项目、所有非终结符的开头终结符、每个终结符到其初始项目的映射、以及合并后项目集闭包的核心 LR(0) 项目元组")
         self.closure_id_to_closure_set_hash: List[Set[int]] = [set() for _ in range(self.n_status)]
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
@@ -183,12 +185,10 @@ class ParserLALR1(ParserBase):
         # 通过广度优先搜索，查找所有 LR(1) 项目集闭包及其之间的关联关系
         self.bfs_search_all_closure()
 
-        LOGGER.info(f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
-        LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
-        LOGGER.info("[6 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
+        LOGGER.info(f"[Step 8] END:"
+                    f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
 
-        # 计算入口 LR(1) 项目集对应的状态 ID
-        LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
+        LOGGER.info("[Step 9] START: 根据初始 LR(0) 项目和接受 LR(0) 项目，计算初始状态 ID 和接受状态 ID")
         init_closure_core = (self.init_lr1_id,)
         init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
         accept_lr1_core = self.accept_lr0_id * (self.grammar.n_terminal + 1) + self.grammar.end_terminal
@@ -197,13 +197,14 @@ class ParserLALR1(ParserBase):
         accept_closure_key = self.get_closure_key_by_clsure_core(accept_closure_core)
         self.init_status_id = self.closure_key_to_closure_id_hash[init_closure_key]
         self.accept_status_id = self.closure_key_to_closure_id_hash[accept_closure_key]
-        LOGGER.info("[9 / 10] 根据入口和接受 LR(1) 项目集对应的状态号")
+        LOGGER.info("[Step 9] END: "
+                    f"初始状态 ID = {self.init_status_id}, "
+                    f"接受状态 ID = {self.accept_status_id}")
 
-        # 构造 ACTION 表 + GOTO 表
-        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表开始")
+        LOGGER.info("[Step 10] START: 根据所有 LR(1) 项目集闭包，构造 LR 分析表的剩余部分")
         self.create_lr_parsing_table_use_lalr1()
         self.table = self.lr_table
-        LOGGER.info("[10 / 10] 构造 ACTION 表 + GOTO 表结束")
+        LOGGER.info("[Step 10] END")
 
         if self.profile:
             self.profiler.disable()
