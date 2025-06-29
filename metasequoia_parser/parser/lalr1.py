@@ -134,6 +134,17 @@ class ParserLALR1(ParserBase):
         self.accept_lr0_id = self.get_accept_lr0_id()
         LOGGER.info("[3 / 10] 从 LR(0) 项目列表中获取入口和接受 LR(0) 项目的 ID - 结束")
 
+        LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
+        self.closure_key_to_closure_id_hash = self.cal_core_to_item0_set_hash()
+        LOGGER.info("[4 / 10] 广度优先搜索，计算合并后的所有项目集闭包")
+
+        # 初始化 LR 分析表（ACTION + GOTO）：第 1 维是状态 ID，第 2 维是符号 ID
+        self.n_status = len(self.closure_key_to_closure_id_hash)
+        self.lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol
+                                                         for _ in range(self.n_status)]
+        self.lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+        self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+
         # 计算所有涉及的非终结符的符号 ID 的列表（之所以不使用语法中所有符号的列表，是因为部分符号可能没有被实际引用）
         nonterminal_id_list = list({lr0.nonterminal_id for lr0 in self.lr0_list})
 
@@ -141,10 +152,9 @@ class ParserLALR1(ParserBase):
         self.nonterminal_all_start_terminal = self.cal_nonterminal_all_start_terminal(nonterminal_id_list)
 
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
-        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
+        LOGGER.info("[5 / 10] 广度优先搜索，构造项目集闭包之间的关联关系")
         self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
-        self.closure_key_to_closure_id_hash: Dict[Tuple[int, ...], int] = {}  # 核心项目到 SID1 的映射
-        self.closure_id_to_closure_set_hash: List[Set[int]] = []  # SID1 到 LR(1) 项目集核心元组的映射
+        self.closure_id_to_closure_set_hash: List[Set[int]] = [set() for _ in range(self.n_status)]
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.lr1_id_to_lr0_id_hash: List[int] = []
@@ -170,14 +180,7 @@ class ParserLALR1(ParserBase):
 
         LOGGER.info(f"LR(1) 项目数量 = {len(self.lr1_core_to_lr1_id_hash)}")
         LOGGER.info(f"LR(1) 项目集数量 = {len(self.closure_id_to_closure_set_hash)}")
-        LOGGER.info("[4 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
-
-        # 初始化 LR 分析表（ACTION + GOTO）：第 1 维是状态 ID，第 2 维是符号 ID
-        self.n_status = len(self.closure_id_to_closure_set_hash)
-        self.lr_table: List[List[Optional[Callable]]] = [[ActionError()] * self.grammar.n_symbol
-                                                         for _ in range(self.n_status)]
-        self.lr_sr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
-        self.lr_rr_priority: List[List[int]] = [[-1] * self.grammar.n_symbol for _ in range(self.n_status)]
+        LOGGER.info("[5 / 10] 广度优先搜索，构造项目集闭包之间的关联关系结束")
 
         # 构造 LR(1) 项目集之间的前驱 / 后继关系
         LOGGER.info("[7 / 10 | S] 根据 LR(1) 项目集闭包之间的关系，填写 LR 分析表中的 Action 行为和 GOTO 行为")
@@ -467,8 +470,8 @@ class ParserLALR1(ParserBase):
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
         init_closure_core = (self.init_lr1_id,)
-        init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
-        closure_key_to_closure_id_hash[init_closure_key] = 0
+        # init_closure_key = self.get_closure_key_by_clsure_core(init_closure_core)
+        # closure_key_to_closure_id_hash[init_closure_key] = 0
         closure_id_to_closure_set_hash.append(set())
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
@@ -508,12 +511,8 @@ class ParserLALR1(ParserBase):
             for next_symbol, sub_lr1_id_set in next_group.items():
                 next_closure_core: Tuple[int, ...] = tuple(sorted(set(sub_lr1_id_set)))
                 next_closure_key: Tuple[int, ...] = self.get_closure_key_by_clsure_core(next_closure_core)
-                if next_closure_key not in closure_key_to_closure_id_hash:
-                    next_closure_id = len(closure_key_to_closure_id_hash)
-                    closure_key_to_closure_id_hash[next_closure_key] = next_closure_id
-                    closure_id_to_closure_set_hash.append(set())
-                else:
-                    next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
+                assert next_closure_key in closure_key_to_closure_id_hash, f"{next_closure_key} 未被 LR(0) 计算"
+                next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
 
                 # 记录 LR(1) 项目集之间的前驱 / 后继关系
                 closure_relation.append((closure_id, next_symbol, next_closure_id))
@@ -782,3 +781,109 @@ class ParserLALR1(ParserBase):
 
         # 当接受项目集闭包接收到结束符时，填充 Accept 行为
         self.lr_table[self.accept_status_id][self.grammar.end_terminal] = ActionAccept()
+
+    def cal_core_to_item0_set_hash(self) -> Dict[Tuple[int, ...], int]:
+        """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射但不构造项目集闭包之间的关联关系）
+
+        Returns
+        -------
+        Dict[Item0, Item0Set]
+            核心项目到项目集闭包的映射（项目集闭包中包含项目列表，但不包含项目闭包之间关联关系）
+        """
+
+        # 将入口项目添加到广度优先搜索的队列中
+        init_closure_core = (self.init_lr0_id,)
+        visited = {init_closure_core}
+        queue = collections.deque([(0, init_closure_core)])
+
+        closure_key_to_closure_id_hash = {init_closure_core: 0}
+
+        # 广度优先搜索遍历所有项目集闭包
+        while queue:
+            closure_id, closure_core = queue.popleft()
+
+            # 根据 Item 生成项目集闭包中包含的项目列表
+            closure_other = self.closure_lr0(closure_core)
+
+            # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
+            next_group = collections.defaultdict(list)
+            for lr0_id in chain(closure_core, closure_other):
+                lr0 = self.lr0_list[lr0_id]
+                if len(lr0.after_handle) == 0:
+                    continue  # 跳过匹配 %empty 的项目
+
+                # 获取核心项目句柄之后的第一个符号
+                next_symbol = lr0.after_handle[0]
+                if next_symbol is not None:
+                    next_group[next_symbol].append(lr0.next_lr0_id)
+
+            # 获取每个项目的作为后继项目集闭包的核心项目
+            for next_symbol, sub_lr0_id_list in next_group.items():
+                next_closure_key: Tuple[int, ...] = tuple(sorted(set(sub_lr0_id_list)))
+                if next_closure_key not in closure_key_to_closure_id_hash:
+                    next_closure_id = len(closure_key_to_closure_id_hash)
+                    closure_key_to_closure_id_hash[next_closure_key] = next_closure_id
+                else:
+                    next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
+
+                # 将后继项目集闭包的核心项目元组添加到队列
+                if next_closure_key not in visited:
+                    queue.append((next_closure_id, next_closure_key))
+                    visited.add(next_closure_key)
+
+        return closure_key_to_closure_id_hash
+
+    def closure_lr0(self, lr0_id_list: Tuple[int]) -> List[int]:
+        """根据 Item0 生成项目集闭包（closure of item sets）中包含的项目列表
+
+        Parameters
+        ----------
+        lr0_id_list : int
+            项目集闭包的核心项目（最高层级项目）
+
+        Returns
+        -------
+        List[int]
+            项目集闭包中包含的 LR(0) 项目 ID 的列表
+        """
+
+        visited_symbol_set = set()  # 已访问过的句柄后第一个符号的集合
+        queue = collections.deque()  # 待处理的句柄后第一个符号的集合
+
+        for lr0_id in lr0_id_list:
+            lr0 = self.lr0_list[lr0_id]
+            if len(lr0.after_handle) == 0:
+                continue  # 跳过匹配 %empty 的项目
+
+            # 获取核心项目句柄之后的第一个符号
+            first_symbol = lr0.after_handle[0]
+
+            if first_symbol not in visited_symbol_set:
+                visited_symbol_set.add(first_symbol)
+                queue.append(first_symbol)
+
+        # 初始化项目集闭包中包含的项目列表
+        item_list = []
+
+        # 广度优先搜索所有的等价项目组
+        while queue:
+            symbol = queue.popleft()
+
+            # 如果当前符号是终结符，则不存在等价项目
+            if symbol not in self.nonterminal_id_to_start_lr0_id_list_hash:
+                continue
+
+            # 添加生成 symbol 非终结符对应的所有项目，并将这些项目也加入继续寻找等价项目组的队列中
+            for sub_lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[symbol]:
+                item_list.append(sub_lr0_id)
+                sub_lr0 = self.lr0_list[sub_lr0_id]
+
+                if len(sub_lr0.after_handle) == 0:
+                    continue  # 跳过匹配 %empty 的项目
+
+                new_symbol = sub_lr0.after_handle[0]
+                if new_symbol not in visited_symbol_set:
+                    visited_symbol_set.add(new_symbol)
+                    queue.append(new_symbol)
+
+        return item_list
