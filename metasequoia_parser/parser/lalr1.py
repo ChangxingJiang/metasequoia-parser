@@ -474,12 +474,12 @@ class ParserLALR1(ParserBase):
         queue_1 = collections.deque([0])
         queue_2 = collections.defaultdict(list)
         queue_2[0].append(self.init_lr1_id)
-        # queue = collections.deque([(0, self.init_lr1_id)])
 
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
         while queue_1:
             closure_id = queue_1.popleft()
+            # print(f"[遍历] {idx}: {closure_id}")
             visited_1.remove(closure_id)
             lr1_id_list = queue_2.pop(closure_id)
             lr1_id_tuple = tuple(lr1_id_list)
