@@ -489,15 +489,19 @@ class ParserLALR1(ParserBase):
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
             closure_other = self.new_closure_lr1(tuple(sorted(closure_core)))
 
-            for lr1_id in chain(closure_core, closure_other):
-                self.add_lr1_to_closure(closure_id, lr1_id)
-
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             next_group = collections.defaultdict(list)
             for lr1_id in chain(closure_core, closure_other):
                 next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[lr1_id]
                 if next_symbol is not None:
                     next_group[next_symbol].append(next_lr1_id)
+                    # next_closure_core = (next_lr1_id, )
+                    # next_closure_id = self.closure_relation_2[closure_id][next_symbol]
+                    # if next_closure_core not in visited:
+                    #     queue.append((next_closure_id, next_closure_core))
+                    #     visited.add(next_closure_core)
+                else:
+                    self.add_lr1_to_closure(closure_id, lr1_id)
 
             # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
             for next_symbol, sub_lr1_id_set in next_group.items():
@@ -531,8 +535,6 @@ class ParserLALR1(ParserBase):
 
             idx += 1
 
-            self.add_lr1_to_closure(closure_id, lr1_id)
-
             if self.debug is True and idx % 1000 == 0:
                 LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
                             f"已处理={idx}, "
@@ -550,6 +552,8 @@ class ParserLALR1(ParserBase):
                     if (next_closure_id, next_lr1_id) not in visited:
                         visited.add((next_closure_id, next_lr1_id))
                         queue.append((next_closure_id, next_lr1_id))
+                    else:
+                        self.add_lr1_to_closure(closure_id, lr1_id)
 
     def add_lr1_to_closure(self, closure_id: int, lr1_id: int) -> None:
         """将 LR(1) 项目添加到项目集闭包"""
