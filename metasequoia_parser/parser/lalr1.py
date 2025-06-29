@@ -467,69 +467,48 @@ class ParserLALR1(ParserBase):
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
         self.init_lr1_id = self.create_lr1(self.init_lr0_id, self.grammar.end_terminal)
-        init_closure_core = (self.init_lr1_id,)
 
         # 初始化项目集闭包的广度优先搜索的队列：将入口项目集的核心项目元组添加到队列
-        visited = {init_closure_core}
-        visited_lr1_id_set = set()
-        queue = collections.deque([(0, init_closure_core)])
-
-        add_set_1 = set()
-        add_set_2 = set()
+        visited_2 = {(0, self.init_lr1_id)}
+        visited_1 = {0}
+        queue_1 = collections.deque([0])
+        queue_2 = collections.defaultdict(list)
+        queue_2[0].append(self.init_lr1_id)
+        # queue = collections.deque([(0, self.init_lr1_id)])
 
         # 广度优先搜索遍历所有项目集闭包
         idx = 0
-        while queue:
-            closure_id, closure_core = queue.popleft()
-            add_set_1 |= set(closure_core)
+        while queue_1:
+            closure_id = queue_1.popleft()
+            visited_1.remove(closure_id)
+            lr1_id_list = queue_2.pop(closure_id)
+            lr1_id_tuple = tuple(lr1_id_list)
 
             idx += 1
 
             if self.debug is True and idx % 1000 == 0:
                 LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
                             f"已处理={idx}, "
-                            f"队列中={len(queue)}, "
+                            f"队列中={len(queue_2)}, "
                             f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
-            # closure_other = self.new_closure_lr1(tuple(sorted(closure_core)))
-            closure_other = set()
-            for lr1_id in closure_core:
-                if lr1_id not in visited_lr1_id_set:
-                    closure_other |= self.new_closure_lr1((lr1_id,))
-                    visited_lr1_id_set.add(lr1_id)
+            closure_other = self.new_closure_lr1(lr1_id_tuple)
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
-            next_group = collections.defaultdict(list)
-            for lr1_id in chain(closure_core, closure_other):
-                next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[lr1_id]
+            for sub_lr1_id in chain(lr1_id_tuple, closure_other):
+                next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
                 if next_symbol is not None:
-                    next_group[next_symbol].append(next_lr1_id)
+                    next_closure_id = self.closure_relation_2[closure_id][next_symbol]
+                    # 将后继项目集闭包的核心项目元组添加到队列
+                    if (next_closure_id, next_lr1_id) not in visited_2:
+                        if next_closure_id not in visited_1:
+                            visited_1.add(next_closure_id)
+                            queue_1.append(next_closure_id)
+                        visited_2.add((next_closure_id, next_lr1_id))
+                        queue_2[next_closure_id].append(next_lr1_id)
                 else:
-                    self.add_lr1_to_closure(closure_id, lr1_id)
-                    add_set_2.add((closure_id, lr1_id))
-
-            # 计算后继项目集的核心项目元组（排序以保证顺序稳定）
-            for next_symbol, sub_lr1_id_set in next_group.items():
-                next_closure_id = self.closure_relation_2[closure_id][next_symbol]
-
-                # for sub_lr1_id in set(sub_lr1_id_set):
-                #     next_closure_core: Tuple[int, ...] = (sub_lr1_id,)
-                #
-                #     # 将后继项目集闭包的核心项目元组添加到队列
-                #     if next_closure_core not in visited:
-                #         queue.append((next_closure_id, next_closure_core))
-                #         visited.add(next_closure_core)
-
-                next_closure_core: Tuple[int, ...] = tuple(sorted(set(sub_lr1_id_set) - visited_lr1_id_set))
-
-                # 将后继项目集闭包的核心项目元组添加到队列
-                if next_closure_core not in visited:
-                    queue.append((next_closure_id, next_closure_core))
-                    visited.add(next_closure_core)
-
-        print(f"添加数量1: {len(add_set_1)}")
-        print(f"添加数量2: {len(add_set_2)}")
+                    self.add_lr1_to_closure(closure_id, sub_lr1_id)
 
     def add_lr1_to_closure(self, closure_id: int, lr1_id: int) -> None:
         """将 LR(1) 项目添加到项目集闭包"""
