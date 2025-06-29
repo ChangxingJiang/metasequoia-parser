@@ -161,7 +161,6 @@ class ParserLALR1(ParserBase):
         # 根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系
         LOGGER.info(
             "[Step 8] START: 根据所有 LR(0) 项目、初始 LR(0) 项目、所有非终结符的开头终结符、每个终结符到其初始项目的映射、以及合并后项目集闭包的核心 LR(0) 项目元组")
-        self.closure_id_to_closure_set_hash: List[Set[int]] = [set() for _ in range(self.n_status)]
 
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.lr1_id_to_lr0_id_hash: List[int] = []
@@ -464,7 +463,6 @@ class ParserLALR1(ParserBase):
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
         closure_key_to_closure_id_hash = self.closure_key_to_closure_id_hash
-        closure_id_to_closure_set_hash = self.closure_id_to_closure_set_hash
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
@@ -486,16 +484,11 @@ class ParserLALR1(ParserBase):
                 LOGGER.info(f"正在广度优先搜索遍历所有项目集闭包: "
                             f"已处理={idx}, "
                             f"队列中={len(queue)}, "
-                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}, "
-                            f"LR(1) 项目集闭包数量={len(self.closure_id_to_closure_set_hash)}")
+                            f"LR(1) 项目数量={len(self.lr1_core_to_lr1_id_hash)}")
 
             # 广度优先搜索，根据项目集核心项目元组（closure_core）生成项目集闭包中包含的其他项目列表（item_list）
             closure_other = self.new_closure_lr1(tuple(sorted(closure_core)))
             # print(f"项目集闭包尺寸: {len(closure_core)}, {len(other_lr1_id_set)}({sys.getsizeof(other_lr1_id_set)})")
-
-            # 构造项目集闭包并添加到结果集中
-            closure_id_to_closure_set_hash[closure_id] |= set(closure_core)
-            closure_id_to_closure_set_hash[closure_id] |= closure_other
 
             for lr1_id in chain(closure_core, closure_other):
                 lr0_id = self.lr1_id_to_lr0_id_hash[lr1_id]
@@ -750,62 +743,6 @@ class ParserLALR1(ParserBase):
             else:
                 # 后继项目为非终结符，填充 GOTO 表
                 self.lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
-
-    def create_lr_parsing_table_use_lalr1(self) -> None:
-        # pylint: disable=R0801
-        # pylint: disable=R0912
-        # pylint: disable=R0914
-        """使用 LR(1) 解析器的逻辑，构造 LR_Parsing_Table
-
-        pylint: disable=R0801 -- 未提高相似算法的代码可读性，允许不同算法之间存在少量相同代码
-
-        Returns
-        -------
-        table : List[List[Callable]]
-            ACTION 表 + GOTO 表
-        """
-        # closure_id_to_closure_set_hash = self.closure_id_to_closure_set_hash
-        # lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
-        # lr1_id_to_lookahead_hash = self.lr1_id_to_lookahead_hash
-        # lr0_list = self.lr0_list
-        #
-        # # 遍历所有项目集闭包，填充 ACTION 表和 GOTO 表（当前项目集即使是接收项目集，也需要填充）
-        # # 遍历所有有效 LR(1) 项目集闭包的 S1_ID
-        # for closure_id in range(self.n_status):
-        #     # 遍历不包含后继项目的项目，记录需要填充到 ACTION 表的 Reduce 行为
-        #     for lr1_id in closure_id_to_closure_set_hash[closure_id]:
-        #         lr0_id = lr1_id_to_lr0_id_hash[lr1_id]
-        #         lookahead = lr1_id_to_lookahead_hash[lr1_id]
-        #         lr0 = lr0_list[lr0_id]
-        #         if lr0.next_symbol is None:
-        #             reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
-        #                                          n_param=len(lr0.before_handle),
-        #                                          reduce_function=lr0.action)
-        #
-        #             # 处理 规约/规约 冲突：如果 RR 优先级小于之前已经处理的规约行为，则不再处理当前规约行为
-        #             if lr0.rr_priority_idx <= self.lr_rr_priority[closure_id][lookahead]:
-        #                 continue
-        #             self.lr_rr_priority[closure_id][lookahead] = lr0.rr_priority_idx  # 更新 RR 优先级
-        #
-        #             # 处理 移进/规约 冲突：如果规约优先级大于移进优先级，则优先执行规约行为
-        #             # 如果要规约的规则的 SR 优先级高于下一个输入符号的 SR 优先级，则进行规约
-        #             if lr0.sr_priority_idx > self.lr_sr_priority[closure_id][lookahead]:
-        #                 self.lr_table[closure_id][lookahead] = reduce_action
-        #                 self.lr_sr_priority[closure_id][lookahead] = lr0.sr_priority_idx  # SR 优先级
-        #             # 如果要规约的规则的 SR 优先级与下一个输入符号的 SR 优先级一致，即均使用同一级终结符的 SR 优先级，则根据该符号的结合方向计算移进行为 SR 结合顺序
-        #             elif lr0.sr_priority_idx == self.lr_sr_priority[closure_id][lookahead]:
-        #                 shift_sr_combine_type = self.grammar.get_terminal_sr_combine_type(lookahead)
-        #                 if shift_sr_combine_type == CombineType.LEFT:
-        #                     # 如果结合方向为从左到右，则进行规约
-        #                     self.lr_table[closure_id][lookahead] = reduce_action
-        #                 elif shift_sr_combine_type != CombineType.RIGHT:
-        #                     # 如果既不是左结合也不是右结合，则抛出异常
-        #                     self.lr_table[closure_id][lookahead] = ActionError()
-        #                 # 如果结合方向为从右到左，则进行移进
-        #             # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进（不需要进行额外处理）
-
-        # 当接受项目集闭包接收到结束符时，填充 Accept 行为
-
 
     def cal_core_to_item0_set_hash(self) -> Dict[Tuple[int, ...], int]:
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射但不构造项目集闭包之间的关联关系）
