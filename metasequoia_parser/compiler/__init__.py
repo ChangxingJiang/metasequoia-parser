@@ -42,3 +42,4 @@ return move_action(status_stack, symbol_stack, terminal)
 """
 
 from metasequoia_parser.compiler.lalr1 import compile_lalr1
+from metasequoia_parser.compiler.compress_lalr1 import compress_compile_lalr1
