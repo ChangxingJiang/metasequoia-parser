@@ -646,47 +646,6 @@ class ParserLALR1(ParserBase):
         # 如果要规约的规则的 SR 优先级低于下一个输入符号的 SR 优先级，则进行移进（不需要进行额外处理）
 
     @lru_cache(maxsize=None)
-    def compute_single_level_closure(self, sub_cid: int) -> Set[int]:
-        """计算 LR(1) 单层的等价 LR(1) 项目的 ID 的集合
-
-        计算单层的等价 LR(1) 项目，即只将非终结符替换为等价的终结符或非终结符，但不会计算替换后的终结符的等价 LR(1) 项目。
-
-        Parameters
-        ----------
-        sub_cid : int
-            组合 ID
-
-        Returns
-        -------
-        Set[int]
-            等价 LR(1) 项目的集合
-        """
-        sub_ah_id, sub_lookahead = self.cid_to_ah_id_and_lookahead_list[sub_cid]
-
-        # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
-        if sub_ah_id == 0:
-            return EMPTY_SET
-
-        n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
-        after_handle = self.ah_id_to_after_handle_hash[sub_ah_id]
-
-        # 获取当前句柄之后的第 1 个符号
-        first_symbol = after_handle[0]
-
-        # 如果当前句柄之后的第 1 个符号是终结符，则不存在等价的 LR(1) 项目，直接返回空集合
-        # 【性能】通过 first_symbol < n_terminal 判断 next_symbol 是否为终结符，以节省对 grammar.is_terminal 方法的调用
-        if first_symbol < n_terminal:
-            return EMPTY_SET
-
-        lr1_id_set, need_inherit = self.cal_generated_lookahead_set(sub_ah_id)
-
-        if need_inherit is True:
-            return lr1_id_set | {self.create_lr1(lr0_id, sub_lookahead)
-                                 for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[first_symbol]}
-        else:
-            return lr1_id_set
-
-    @lru_cache(maxsize=None)
     def cal_generated_lookahead_set(self, ah_id: int) -> Tuple[Set[int], bool]:
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
         after_handle = self.ah_id_to_after_handle_hash[ah_id]
@@ -726,44 +685,6 @@ class ParserLALR1(ParserBase):
                 lr1_id_set.add(self.create_lr1(lr0_id, sub_lookahead))
 
         return lr1_id_set, need_inherit
-
-    @lru_cache(maxsize=None)
-    def cal_generated_and_inherit_lr1_id_set_by_ah_id(self, ah_id: int) -> Tuple[Set[int], Set[int]]:
-        # 初始化广度优先搜索的第 1 批节点
-        lr1_id_to_cid_hash = self.lr1_id_to_cid_hash
-        lr1_id_to_lr0_id_hash = self.lr1_id_to_lr0_id_hash
-        lr1_id_to_lookahead_hash = self.lr1_id_to_lookahead_hash
-
-        cid = self.ah_id_no_lookahead_to_cid_hash[ah_id]
-        visited_cid_set = {cid}
-        queue = collections.deque([cid])
-
-        # 广度优先搜索所有的等价项目组
-        lr1_id_set = set()
-        while queue:
-            # 计算单层的等价 LR(1) 项目
-            sub_lr1_id_set = self.compute_single_level_closure(queue.popleft())
-
-            # 将当前项目组匹配的等价项目组添加到所有等价项目组中
-            lr1_id_set |= sub_lr1_id_set
-
-            # 将等价项目组中需要继续寻找等价项目的添加到队列
-            # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
-            for lr1_id in sub_lr1_id_set:
-                new_cid = lr1_id_to_cid_hash[lr1_id]
-                if new_cid not in visited_cid_set:
-                    visited_cid_set.add(new_cid)
-                    queue.append(new_cid)
-
-        generated_lr1_id_set = set()  # 自生后继型 LR(1) 项目
-        inherit_lr0_id_set = set()  # 继承后继型 LR(1) 项目对应的 LR(0) 项目
-        for lr1_id in lr1_id_set:
-            if lr1_id_to_lookahead_hash[lr1_id] != self.grammar.n_terminal:
-                generated_lr1_id_set.add(lr1_id)
-            else:
-                inherit_lr0_id_set.add(lr1_id_to_lr0_id_hash[lr1_id])
-
-        return generated_lr1_id_set, inherit_lr0_id_set
 
     def create_closure_relation(self) -> None:
         """构造 LR(1) 项目集之间的前驱 / 后继关系"""
