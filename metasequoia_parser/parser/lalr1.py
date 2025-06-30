@@ -516,10 +516,6 @@ class ParserLALR1(ParserBase):
 
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【开始】 ------------------------------
 
-            m_1 = 0
-            m_2 = 0
-            list_1 = []
-
             # 广度优先搜索所有的等价项目组
             while queue:
                 sub_ah_id, sub_lookahead = cid_to_ah_id_and_lookahead_list[queue.popleft()]
@@ -549,16 +545,6 @@ class ParserLALR1(ParserBase):
                         visited_3.add((closure_id, sub_ah_id))
                         visited_5.add((next_closure_id, sub_ah_id))
                         sub_lr1_id_set |= combine_set
-                        m_1 += len(combine_set)
-                        # for sub_lr1_id in lr1_id_set:
-                        #     sub_next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
-                        #     if sub_next_symbol is None:
-                        #         sub_lr0_id = self.lr1_id_to_lr0_id_hash[sub_lr1_id]
-                        #         sub_lr0 = self.lr0_list[sub_lr0_id]
-                        #         # print(f"特殊1: closure_id={closure_id}, ah_id={sub_ah_id}, next_closure_id={next_closure_id}, "
-                        #         #       f"lr1_id={sub_lr1_id} "
-                        #         #       f"(lr0={sub_lr0}, next_symbol={next_symbol})")
-
                     else:
                         for symbol, lookahead in combine_set:
                             for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
@@ -567,14 +553,9 @@ class ParserLALR1(ParserBase):
                                     if (closure_id, sub_lr1_id) not in visited_6:
                                         visited_6.add((closure_id, sub_lr1_id))
                                         self.add_lr1_to_closure(closure_id, sub_lr1_id)
-                                    # print(f"特殊2: {sub_lr1_id} ({(closure_id, sub_lr1_id) in visited_6})")
 
                 if need_inherit is True:
-                    # inherit_lr1_id_set = {self.create_lr1(lr0_id, sub_lookahead)
-                    #                       for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[next_symbol]}
                     sub_lr1_id_set.add((next_symbol, sub_lookahead))
-                    list_1.append((next_symbol, sub_lookahead))
-                    m_2 += len(self.nonterminal_id_to_start_lr0_id_list_hash[next_symbol])
 
                 # 将当前项目组匹配的等价项目组添加到所有等价项目组中
                 closure_other |= sub_lr1_id_set
@@ -591,9 +572,6 @@ class ParserLALR1(ParserBase):
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【结束】 ------------------------------
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
-            n_1 = 0
-            n_2 = 0
-            n_3 = 0
             for symbol, lookahead in closure_other:
                 for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
                     next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
@@ -606,16 +584,10 @@ class ParserLALR1(ParserBase):
                                 queue_1.append(next_closure_id)
                             visited_2.add((next_closure_id, next_lr1_id))
                             queue_2[next_closure_id].append(next_lr1_id)
-                            n_1 += 1
-                        n_3 += 1
                     else:
                         if (closure_id, sub_lr1_id) not in visited_6:
                             visited_6.add((closure_id, sub_lr1_id))
                             self.add_lr1_to_closure(closure_id, sub_lr1_id)
-                        n_2 += 1
-
-            # print(f"[遍历] {closure_id}: {list_1} -> {len(closure_other)}({m_1}, {m_2})"
-            #       f" -> ({n_1} / {n_3}, {n_2})")
 
     def add_lr1_to_closure(self, closure_id: int, lr1_id: int) -> None:
         """将 LR(1) 项目添加到项目集闭包"""
@@ -684,11 +656,6 @@ class ParserLALR1(ParserBase):
                 break
 
             i += 1
-
-        # lr1_id_set: Set[int] = set()  # 当前项目组之后的所有可能的 lookahead
-        # for lr0_id in self.nonterminal_id_to_start_lr0_id_list_hash[first_symbol]:
-        #     for sub_lookahead in lookahead_set:
-        #         lr1_id_set.add(self.create_lr1(lr0_id, sub_lookahead))
 
         return {(first_symbol, sub_lookahead) for sub_lookahead in lookahead_set}, need_inherit
 
