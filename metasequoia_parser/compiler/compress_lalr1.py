@@ -161,7 +161,7 @@ def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
     source_code = ast.unparse(lambda_body)
 
     # 为 lambda 表达式增加返回值
-    source_code = f"symbol_value = {source_code}"
+    source_code = f"v = {source_code}"
 
     return [source_code]
 
@@ -202,7 +202,7 @@ def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]
         if isinstance(function_stmt, ast.Return):
             return_value = function_stmt.value
             return_value = typing.cast(ast.AST, return_value)
-            source_code = f"symbol_value = {ast.unparse(return_value)}"
+            source_code = f"v = {ast.unparse(return_value)}"
         else:
             # 如果不是 Return 表达式，则将 lambda 表达式中的逻辑部分反解析为 Python 源码
             function_stmt = typing.cast(ast.AST, function_stmt)
@@ -251,13 +251,13 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
             if isinstance(action, ActionShift):
                 if action.status not in built_shift_action:
                     built_shift_action.add(action.status)
-                    function_name = f"action_shift_{action.status}"
+                    function_name = f"as{action.status}"
                     # pylint: disable=C0301
                     source_script.extend([
                         f"def {function_name}(s1, s2, terminal):",
                         f"    s1.append({action.status})",
                         "    s2.append(terminal.symbol_value)",
-                        f"    return status_{action.status}, True",
+                        f"    return s{action.status}, True",
                         "",
                         "",
                     ])
@@ -277,7 +277,7 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
                     continue
 
                 # 生成规约行为函数的名称
-                function_name = f"action_reduce_{i}_{reduce_function_idx}"
+                function_name = f"ar{i}_{reduce_function_idx}"
                 reduce_function_idx += 1
                 reduce_function_hash[(nonterminal_id, reduce_function)] = function_name
 
@@ -291,21 +291,21 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
                     source_script.append(f"    {source_row}")
                 # pylint: disable=C0301
                 source_script.append(
-                    f"    next_status = S[(s1[-{n_param + 1}], {nonterminal_id})]"
+                    f"    n = S[(s1[-{n_param + 1}], {nonterminal_id})]"
                 )
                 if n_param > 0:
                     source_script.extend([
-                        f"    s2[-{n_param}:] = [symbol_value]",
-                        f"    s1[-{n_param}:] = [next_status]",
+                        f"    s2[-{n_param}:] = [v]",
+                        f"    s1[-{n_param}:] = [n]",
                     ])
                 else:
                     source_script.extend([
-                        f"    s2.append(symbol_value)",
-                        f"    s1.append(next_status)",
+                        f"    s2.append(v)",
+                        f"    s1.append(n)",
                     ])
 
                 source_script.extend([
-                    "    return STATUS_HASH[next_status], False",
+                    "    return H[n], False",
                     "",
                     ""
                 ])
@@ -313,7 +313,7 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
     # ------------------------------ 【构造】接收行为函数 ------------------------------
     # pylint: disable=C0301
     source_script.extend([
-        "def action_accept(_1, _2, _3):",
+        "def ac(_1, _2, _3):",
         "    return None, True",
         "",
         ""
@@ -322,17 +322,17 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
     # ------------------------------ 【构造】终结符 > 行为函数的字典；状态函数 ------------------------------
     for i in range(n_status):
         # 构造：终结符 > 行为函数的字典
-        source_script.append(f"STATUS_{i}_TERMINAL_ACTION_HASH = {{")
+        source_script.append(f"SH{i} = {{")
         for j in range(parser.grammar.n_terminal):
             action: ActionBase = table[i][j]
             if isinstance(action, ActionShift):
-                function_name = f"action_shift_{action.status}"
+                function_name = f"as{action.status}"
             elif isinstance(action, ActionReduce):
                 nonterminal_id = action.reduce_name
                 reduce_function = action.reduce_function
                 function_name = reduce_function_hash[(nonterminal_id, reduce_function)]
             elif isinstance(action, ActionAccept):
-                function_name = "action_accept"
+                function_name = "ac"
             else:
                 continue  # 抛出异常，不需要额外处理
 
@@ -344,8 +344,8 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
         # 构造：状态函数
         # pylint: disable=C0301
         source_script.extend([
-            f"def status_{i}(s1, s2, terminal):",
-            f"    move_action = STATUS_{i}_TERMINAL_ACTION_HASH[terminal.symbol_id]",
+            f"def s{i}(s1, s2, terminal):",
+            f"    move_action = SH{i}[terminal.symbol_id]",
             "    return move_action(s1, s2, terminal)",
             "",
             ""
@@ -363,9 +363,9 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
     source_script.append("")
 
     # ------------------------------ 【构造】状态 > 状态函数的字典 ------------------------------
-    source_script.append("STATUS_HASH = {")
+    source_script.append("H = {")
     for i in range(n_status):
-        source_script.append(f"    {i}: status_{i},")
+        source_script.append(f"    {i}: s{i},")
     source_script.append("}")
     source_script.append("")
     source_script.append("")
@@ -376,7 +376,7 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
         f"    s1 = [{parser.entrance_status_id}]",
         "    s2 = []",
         "",
-        f"    action = status_{parser.entrance_status_id}",
+        f"    action = s{parser.entrance_status_id}",
         "    terminal = lexical_iterator.lex()",
         "    next_terminal = False",
         "    try:",
