@@ -52,13 +52,18 @@ class Symbol(abc.ABC):
         return self._symbol_id
 
     @property
+    def i(self) -> Any:
+        """返回符号的语义值（symbol_id 的别名）"""
+        return self._symbol_id
+
+    @property
     def symbol_value(self) -> Any:
         """返回符号的实际值"""
         return self._value
 
     @property
     def v(self) -> Any:
-        """返回符号的实际值（等价于 symbol_value 的别名）"""
+        """返回符号的实际值（symbol_value 的别名）"""
         return self._value
 
     @property

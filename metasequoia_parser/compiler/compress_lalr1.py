@@ -17,230 +17,153 @@ test = lambda x: f"{x[0]}{x[1]}{x[2]}"
 GRule.create(symbols=["a", "B", "c"], action=test)
 """
 
-import ast
-import inspect
-import typing
-from typing import Callable, List, Union
+import collections
+from typing import Callable, Iterable, List, TextIO
 
-from metasequoia_parser.common import ActionAccept, ActionBase, ActionGoto, ActionReduce, ActionShift
+from metasequoia_parser.common import ActionAccept, ActionGoto, ActionReduce, ActionShift
 from metasequoia_parser.common import TerminalType
 from metasequoia_parser.common.grammar import GGroup, GRule, GrammarBuilder
+from metasequoia_parser.compiler.common import dec_to_base36
+from metasequoia_parser.compiler.compile_reduce_function import CompileError, compile_reduce_function
+from metasequoia_parser.compiler.static import *  # pylint: disable=W0401,W0614
 from metasequoia_parser.parser.lalr1 import ParserLALR1
+from metasequoia_parser.utils import LOGGER
 
-ACTION_SHIFT_FUNCTION_NAME = "h"  # 移进函数名称
-ACTION_RETURN_VALUE_NAME = "r"  # 规约函数名称
-STATUS_STACK_PARAM_NAME = "a"  # 状态栈参数名称
-SYMBOL_STACK_PARAM_NAME = "b"  # 对象栈参数名称
-TERMINAL_PARAM_NAME = "c"  # 终结符参数名称
-TERMINAL_SYMBOL_VALUE_NAME = "v"  # 终结符实际值值的参数名称（在 metasequoia_parser/common/symbol.py 中定义）
+# ---------------------------------------- 【名称构造器】移进函数名称 ----------------------------------------
+
+ACTION_SHIFT_FUNCTION_CODE_HASH = {}
 
 
-class CompileError(Exception):
-    """编译错误"""
+def create_action_shift_function_name(status: int) -> str:
+    """创建移进函数名称
+
+    Parameters
+    ----------
+    status: int
+        移进函数需要压入栈中的状态
+
+    Returns
+    -------
+    str
+        移进函数名称
+    """
+    if status not in ACTION_SHIFT_FUNCTION_CODE_HASH:
+        code = dec_to_base36(len(ACTION_SHIFT_FUNCTION_CODE_HASH))
+        ACTION_SHIFT_FUNCTION_CODE_HASH[status] = f"{FN_PREFIX_SHIFT}{code}"
+    return ACTION_SHIFT_FUNCTION_CODE_HASH[status]
 
 
-def compile_reduce_function(reduce_function: Callable, n_param: int) -> List[str]:
-    """将 reduce_function 转换为 Python 源码"""
-    # 获取 reduce_function 的源码，并剔除首尾的空格、英文半角逗号和换行符
-    reduce_function_code = inspect.getsource(reduce_function)
-    reduce_function_code = reduce_function_code.strip(" ,\n")
-
-    # 将 reduce_function 的源码解析为抽象语法树
-    try:
-        tree_node_module = ast.parse(reduce_function_code)
-    except SyntaxError as e:
-        # 末尾存在无法匹配的 ')'，可能是将更包含了更外层的括号
-        if e.msg == "unmatched ')'" and reduce_function_code.endswith(")"):
-            reduce_function_code = reduce_function_code[:-1]
-            tree_node_module = ast.parse(reduce_function_code)
-        else:
-            raise e
-
-    # 如果 reduce_function 的源码中包含多个表达式，则抛出异常
-    if len(tree_node_module.body) > 1:
-        raise CompileError(f"规约函数源码包含多条表达式: {reduce_function_code}")
-
-    tree_node = tree_node_module.body[0]
-    try:
-        return _compile_tree_node(tree_node, n_param)
-    except CompileError as e:
-        raise CompileError(f"解析失败的源码: {reduce_function_code}") from e
+ACTION_REDUCE_CODE_HASH = {}
 
 
-def _compile_tree_node(tree_node: Union[ast.stmt, ast.expr], n_param: int) -> List[str]:
-    # pylint: disable=R0911
-    # pylint: disable=R0912
-    """解析 Python 抽象语法树的节点"""
+# ---------------------------------------- 【名称构造器】规约函数名称 ----------------------------------------
 
-    # 函数定义的形式
-    if isinstance(tree_node, ast.FunctionDef):
-        return _compile_function(tree_node, n_param)
+def create_action_reduce_function_name(symbol: int, function: Callable) -> str:
+    """创建规约函数名称
 
-    # 使用赋值表达式定义 lambda 表达式的形式
-    if isinstance(tree_node, ast.Assign):
-        return _compile_tree_node(tree_node.value, n_param)
+    Parameters
+    ----------
+    symbol: int
+        规约生成的非终结符 ID
+    function: Callable
+        规约函数可调用对象
 
-    # 包含类型描述的，通过赋值语句中的 lambda 表达式
-    # 样例：DEFAULT_ACTION: Callable[[GrammarActionParams], Any] = lambda x: x[0]
-    if isinstance(tree_node, ast.AnnAssign):
-        return _compile_tree_node(tree_node.value, n_param)
-
-    # lambda 表达式形式（可以通过赋值语句中递归触发调用）
-    if isinstance(tree_node, ast.Lambda):
-        return _compile_lambda(tree_node, n_param)
-
-    # Expr(value=...) —— 表达式层级（lambda 表达式）
-    if isinstance(tree_node, ast.Expr):
-        return _compile_tree_node(tree_node.value, n_param)
-
-    # Call(func=..., args=[...], keywords=[...]) —— 函数调用（lambda 表达式）
-    if isinstance(tree_node, ast.Call):
-        func = tree_node.func
-        args = tree_node.args
-        keywords = tree_node.keywords
-
-        # GRule.create(symbols=..., action=...)
-        # create_rule(symbols=..., action=...)
-        # 如果 action 的源码在这一行，则说明一定是 lambda 表达式，否则源码位于函数定义的位置
-        # pylint: disable=R0916
-        if (isinstance(func, ast.Attribute)
-                and isinstance(func.value, ast.Name)
-                and (func.value.id == "GRule" and func.attr == "create" or
-                     func.value.id == "ms_parser" and func.attr == "create_rule")):
-            if len(args) >= 2:  # 如果使用顺序参数，则应该是第 2 个参数
-                lambda_node = args[1]
-                if isinstance(lambda_node, ast.Lambda):
-                    return _compile_lambda(lambda_node, n_param)
-                raise CompileError("GRule.create 的第 2 个参数不是 lambda 表达式")
-            for keyword in keywords:
-                if keyword.arg == "action":
-                    lambda_node = keyword.value
-                    if isinstance(lambda_node, ast.Lambda):
-                        return _compile_lambda(lambda_node, n_param)
-                    raise CompileError("GRule.create 的关键字参数 action 不是 lambda 表达式")
-            raise CompileError("GRule.create 函数中没有 action 参数")
-
-        GRule(symbols=("b",), action=lambda x: f"{x[0]}")
-        if isinstance(func, ast.Name) and func.id == "GRule":
-            for keyword in keywords:
-                if keyword.arg == "action":
-                    lambda_node = keyword.value
-                    if isinstance(lambda_node, ast.Lambda):
-                        return _compile_lambda(lambda_node, n_param)
-                    raise CompileError("GRule.create 的关键字参数 action 不是 lambda 表达式")
-            raise CompileError("GRule 的初始化方法中没有 action 参数")
-
-    raise CompileError(f"未知元素: {ast.dump(tree_node)}")
+    Returns
+    -------
+    str
+        规约函数名称
+    """
+    if (symbol, function) not in ACTION_REDUCE_CODE_HASH:
+        code = dec_to_base36(len(ACTION_REDUCE_CODE_HASH))
+        ACTION_REDUCE_CODE_HASH[(symbol, function)] = f"{FN_PREFIX_REDUCE}{code}"
+    return ACTION_REDUCE_CODE_HASH[(symbol, function)]
 
 
-def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
-    """解析 lambda 表达式形式的递归函数"""
-    # 获取参数名
-    args = lambda_node.args.args
-    if len(args) > 1:
-        raise CompileError("递归逻辑函数的参数超过 1 个")
-    arg_name = args[0].arg
-
-    # 遍历 lambda 表达式中所有节点，修改参数引用中的参数名和切片值
-    lambda_body = lambda_node.body
-    lambda_body = typing.cast(ast.AST, lambda_body)
-    for node in ast.walk(lambda_body):
-        # 跳过非参数引用节点
-        if not isinstance(node, ast.Subscript):
-            continue
-        node_value = node.value
-        node_slice = node.slice
-        if not isinstance(node_value, ast.Name) or not node_value.id == arg_name:
-            continue
-
-        # 将参数名修改为 symbol_stack（直接从符号栈中获取）
-        node_value.id = SYMBOL_STACK_PARAM_NAME
-
-        # 将切片器中的正数改为负数
-        if not isinstance(node_slice, ast.Constant):
-            raise CompileError("引用参数的切片值不是常量")
-        if node_slice.value < 0:
-            raise CompileError("引用参数的切片值只允许使用正数")
-        node_slice.value = -n_param + node_slice.value
-
-    # 将 lambda 表达式中的逻辑部分反解析为 Python 源码
-    lambda_body = typing.cast(ast.AST, lambda_body)
-    source_code = ast.unparse(lambda_body)
-
-    # 为 lambda 表达式增加返回值
-    source_code = f"v = {source_code}"
-
-    return [source_code]
+# ---------------------------------------- 【名称构造器】通用入口 ----------------------------------------
 
 
-def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]:
-    """解析函数定义形式的递归函数"""
-    # 获取参数名
-    args = function_node.args.args
-    if len(args) > 1:
-        raise CompileError("递归逻辑函数的参数超过 1 个")
-    arg_name = args[0].arg
+def create_function_name(table: List[List[Callable]], status: int, symbol: int) -> str:
+    """创建函数名称
 
-    # 遍历 lambda 表达式中所有节点，修改参数引用中的参数名和切片值
-    function_body = function_node.body
-    result_list = []
-    for function_stmt in function_body:
-        function_stmt = typing.cast(ast.AST, function_stmt)
-        for node in ast.walk(function_stmt):
-            # 跳过非参数引用节点
-            if not isinstance(node, ast.Subscript):
-                continue
-            node_value = node.value
-            node_slice = node.slice
-            if not isinstance(node_value, ast.Name) or not node_value.id == arg_name:
-                continue
+    Parameters
+    ----------
+    table: List[List[Callable]]
+        状态转移表
+    status : int
+        状态 ID
+    symbol : int
+        符号 ID
 
-            # 将参数名修改为 symbol_stack（直接从符号栈中获取）
-            node_value.id = SYMBOL_STACK_PARAM_NAME
-
-            # 将切片器中的正数改为负数
-            if not isinstance(node_slice, ast.Constant):
-                raise CompileError("引用参数的切片值不是常量")
-            if node_slice.value < 0:
-                raise CompileError("引用参数的切片值只允许使用正数")
-            node_slice.value = -n_param + node_slice.value
-
-        # 如果表达式为 Return 表达式，则将 Return 表达式改为 Assign 表达式
-        if isinstance(function_stmt, ast.Return):
-            return_value = function_stmt.value
-            return_value = typing.cast(ast.AST, return_value)
-            source_code = f"v = {ast.unparse(return_value)}"
-        else:
-            # 如果不是 Return 表达式，则将 lambda 表达式中的逻辑部分反解析为 Python 源码
-            function_stmt = typing.cast(ast.AST, function_stmt)
-            source_code = ast.unparse(function_stmt)
-
-        # 为 lambda 表达式增加返回值
-        result_list.append(source_code)
-
-    return result_list
+    Returns
+    -------
+    str
+        函数名称
+    """
+    action = table[status][symbol]
+    if isinstance(action, ActionShift):
+        return create_action_shift_function_name(action.status)
+    if isinstance(action, ActionReduce):
+        return create_action_reduce_function_name(action.reduce_name, action.reduce_function)
+    if isinstance(action, ActionAccept):
+        return FN_NAME_ACCEPT
+    return FN_NAME_ERROR
 
 
-def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: bool = False) -> List[str]:
+# ---------------------------------------- 【代码生成】符号 ID 的集合 ----------------------------------------
+
+
+GLOBAL_VARIABLE_SYMBOL_SET_HASH = {}
+
+
+def write_symbol_set(f: TextIO, symbol_id_set: Iterable[int]) -> str:
+    """写出符号 ID 的集合，并返回符号集合的变量名
+
+    E1 = {1,2,3}
+
+    Parameters
+    ----------
+    f: TextIO
+        输出文件对象
+    symbol_id_set: Set[int]
+        符号 ID 的集合
+
+    Returns
+    -------
+    str
+        符号集合的变量名
+    """
+    unique_code = tuple(sorted(symbol_id_set))
+    if unique_code not in GLOBAL_VARIABLE_SYMBOL_SET_HASH:
+        code = dec_to_base36(len(GLOBAL_VARIABLE_SYMBOL_SET_HASH))  # 计算变量序号
+        variable_name = f"{VAR_PREFIX_SYMBOL_SET}{code}"  # 构造变量名
+        variable_value = ",".join([str(symbol_id) for symbol_id in unique_code])  # 构造变量值
+        f.write(f"{variable_name}={{{variable_value}}}\n")  # 写出变量名的定义
+        GLOBAL_VARIABLE_SYMBOL_SET_HASH[unique_code] = variable_name
+    return GLOBAL_VARIABLE_SYMBOL_SET_HASH[unique_code]
+
+
+def compress_compile_lalr1(f: TextIO, parser: ParserLALR1, import_list: List[str], debug: bool = False) -> None:
     # pylint: disable=R0912
     # pylint: disable=R0914
     # pylint: disable=R0915
     """编译 LALR(1) 解析器"""
+    LOGGER.info("[Write] START")
+
     table = parser.table
 
-    source_script = ["\"\"\"",
-                     "Auto generated by Metasequoia Parser",
-                     "\"\"\""]
+    f.write("\"\"\"\n"
+            "Auto generated by Metasequoia Parser\n"
+            "\"\"\"\n"
+            "\n"
+            "import metasequoia_parser as ms_parser\n"
+            "\n"
+            )
 
-    # 最终生成的源码列表
-    source_script.extend([
-        "",
-        "import metasequoia_parser as ms_parser",
-        "",
-    ])
-    source_script.extend(import_list)
-    source_script.append("")
-    source_script.append("")
+    # 写入引用信息
+    for import_line in import_list:
+        f.write(f"{import_line}\n")
+
+    f.write("\n\n")
 
     # 如果 ACTION + GOTO 表为空，则抛出异常
     if len(table) == 0 or len(table[0]) == 0:
@@ -248,31 +171,45 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
 
     n_status = len(table)
 
+    # ------------------------------ 【构造】合并 ACTION 相同的状态函数 ------------------------------
+    # 需要考虑是否存在 ACTION 表完全相同的状态：样例 https://blog.51cto.com/u_15279775/5130206
+    visited_status_hash = {}
+    status_id_to_code_hash = {}
+    for i in range(n_status):
+        status_core_list = []
+        for j in range(parser.grammar.n_terminal):
+            function_name = create_function_name(table, i, j)
+            status_core_list.append(function_name)
+        status_tuple = tuple(status_core_list)
+        if status_tuple not in visited_status_hash:
+            visited_status_hash[status_tuple] = i
+        status_id_to_code_hash[i] = visited_status_hash[status_tuple]
+
     # ------------------------------ 【构造】移进行为函数 ------------------------------
     built_shift_action = set()
     for i in range(n_status):
         for j in range(parser.grammar.n_terminal):
-            action: ActionBase = table[i][j]
+            action = table[i][j]
             if isinstance(action, ActionShift):
                 if action.status not in built_shift_action:
                     built_shift_action.add(action.status)
-                    function_name = f"{ACTION_SHIFT_FUNCTION_NAME}{action.status}"
+                    function_name = create_action_shift_function_name(action.status)
+                    status_id = status_id_to_code_hash[action.status]
                     # pylint: disable=C0301
-                    source_script.extend([
-                        f"def {function_name}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal):",
-                        f"    {STATUS_STACK_PARAM_NAME}.append({action.status})",
-                        f"    {SYMBOL_STACK_PARAM_NAME}.append(terminal.{TERMINAL_SYMBOL_VALUE_NAME})",
-                        f"    return s{action.status}, True",
-                        "",
-                        "",
+                    f.writelines([
+                        f"def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
+                        f"    {PARAM_STATUS_STACK}.append({action.status})\n",
+                        f"    {PARAM_SYMBOL_STACK}.append({PARAM_TERMINAL}.{TERMINAL_SYMBOL_VALUE_NAME})\n",
+                        f"    return s{status_id},True\n",
+                        "\n",
+                        "\n",
                     ])
 
     # ------------------------------ 【构造】规约行为函数 ------------------------------
     reduce_function_hash = {}
     for i in range(n_status):
-        reduce_function_idx = 1
         for j in range(parser.grammar.n_terminal):
-            action: ActionBase = table[i][j]
+            action = table[i][j]
             if isinstance(action, ActionReduce):
                 nonterminal_id = action.reduce_name
                 reduce_function = action.reduce_function
@@ -282,128 +219,167 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
                     continue
 
                 # 生成规约行为函数的名称
-                function_name = f"ar{i}_{reduce_function_idx}"
-                reduce_function_idx += 1
+                function_name = create_action_reduce_function_name(nonterminal_id, reduce_function)
                 reduce_function_hash[(nonterminal_id, reduce_function)] = function_name
 
                 # 添加规约行为函数
                 n_param = action.n_param
                 # pylint: disable=C0301
-                source_script.append(
-                    f"def {function_name}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, _):"
+                f.write(
+                    f"def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},_):\n"
                 )
                 for source_row in compile_reduce_function(reduce_function, n_param):
-                    source_script.append(f"    {source_row}")
+                    f.write(f"    {source_row}\n")
                 # pylint: disable=C0301
-                source_script.append(
-                    f"    n = S[({STATUS_STACK_PARAM_NAME}[-{n_param + 1}], {nonterminal_id})]"
+                f.write(
+                    f"    n=S[({PARAM_STATUS_STACK}[-{n_param + 1}],{nonterminal_id})]\n"
                 )
                 if n_param > 0:
-                    source_script.extend([
-                        f"    {SYMBOL_STACK_PARAM_NAME}[-{n_param}:] = [v]",
-                        f"    {STATUS_STACK_PARAM_NAME}[-{n_param}:] = [n]",
+                    f.writelines([
+                        f"    {PARAM_SYMBOL_STACK}[-{n_param}:]=[v]\n",
+                        f"    {PARAM_STATUS_STACK}[-{n_param}:]=[n]\n",
                     ])
                 else:
-                    source_script.extend([
-                        f"    {SYMBOL_STACK_PARAM_NAME}.append(v)",
-                        f"    {STATUS_STACK_PARAM_NAME}.append(n)",
+                    f.writelines([
+                        f"    {PARAM_SYMBOL_STACK}.append(v)\n",
+                        f"    {PARAM_STATUS_STACK}.append(n)\n",
                     ])
 
-                source_script.extend([
-                    "    return H[n], False",
-                    "",
-                    ""
+                f.writelines([
+                    f"    return H[n],False\n",
+                    "\n",
+                    "\n"
                 ])
 
     # ------------------------------ 【构造】接收行为函数 ------------------------------
     # pylint: disable=C0301
-    source_script.extend([
-        "def ac(_1, _2, _3):",
-        "    return None, True",
-        "",
-        ""
+    f.writelines([
+        f"def {FN_NAME_ACCEPT}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
+        f"    return None,True\n",
+        "\n",
+        "\n"
     ])
 
     # ------------------------------ 【构造】终结符 > 行为函数的字典；状态函数 ------------------------------
     for i in range(n_status):
         # 构造：终结符 > 行为函数的字典
-        source_script.append(f"SH{i} = {{")
+        if status_id_to_code_hash[i] != i:
+            continue
+
+        # 构造所有终结符和函数的映射
+        symbol_function_hash = {}
         for j in range(parser.grammar.n_terminal):
-            action: ActionBase = table[i][j]
-            if isinstance(action, ActionShift):
-                function_name = f"{ACTION_SHIFT_FUNCTION_NAME}{action.status}"
-            elif isinstance(action, ActionReduce):
-                nonterminal_id = action.reduce_name
-                reduce_function = action.reduce_function
-                function_name = reduce_function_hash[(nonterminal_id, reduce_function)]
-            elif isinstance(action, ActionAccept):
-                function_name = "ac"
-            else:
-                continue  # 抛出异常，不需要额外处理
+            function_name = create_function_name(table, i, j)
+            if function_name == FN_NAME_ERROR:
+                continue
+            symbol_function_hash[j] = function_name
 
-            source_script.append(f"    {j}: {function_name},")
-        source_script.append("}")
-        source_script.append("")
-        source_script.append("")
+        # 【第 1 种状态函数】只有 1 种可选的终结符
+        if len(symbol_function_hash) == 1:
+            symbol_id, function_name = list(symbol_function_hash.items())[0]
+            f.writelines([
+                f"def s{i}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
+                f"    assert {PARAM_TERMINAL}.{TERMINAL_SYMBOL_ID_NAME}=={symbol_id}\n",
+                f"    return {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL})\n",
+                "\n",
+                "\n"
+            ])
 
-        # 构造：状态函数
-        # pylint: disable=C0301
-        source_script.extend([
-            f"def s{i}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal):",
-            f"    move_action = SH{i}[terminal.symbol_id]",
-            f"    return move_action({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal)",
-            "",
-            ""
-        ])
+        # 【第 2 种状态函数】有大于 1 种可选的终结符，但所有终结符都转移到相同状态
+        elif len(set(symbol_function_hash.values())) == 1:
+            symbol_set_var_name = write_symbol_set(f, symbol_function_hash)
+            function_name = list(symbol_function_hash.values())[0]
+            f.writelines([
+                f"def s{i}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
+                f"    assert {PARAM_TERMINAL}.{TERMINAL_SYMBOL_ID_NAME} in {symbol_set_var_name}\n",
+                f"    return {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL})\n",
+                "\n",
+                "\n"
+            ])
+
+        # 【第 3 种状态函数】有大于 1 种可选的终结符和大于 1 种可选的新状态
+        else:
+            # 统计转移到每种状态的符号数量
+            function_count = collections.defaultdict(list)
+            for symbol_id, function_name in symbol_function_hash.items():
+                function_count[function_name].append(symbol_id)
+
+            # 计算需要通过集合添加的符号：绝对值超过 3 且大于等于 50%
+            n_change = len(symbol_function_hash)  # 可接收状态转移总数
+            big_function_set = {function_name for function_name, symbol_id_list in function_count.items()
+                                if len(symbol_id_list) >= 3 and len(symbol_id_list) * 2 >= n_change}
+
+            # 构造直接定义的映射
+            f.write(f"SH{i}={{\n")
+            for symbol_id, function_name in symbol_function_hash.items():
+                if function_name not in big_function_set:
+                    f.write(f"    {symbol_id}:{function_name},\n")
+            f.write("}\n")
+
+            # 构造通过集合定义的映射
+            for function_name in big_function_set:
+                symbol_set_var_name = write_symbol_set(f, function_count[function_name])
+                f.write(f"SH{i}.update({{v: {function_name} for v in {symbol_set_var_name}}})\n")
+
+            f.write("\n")
+            f.write("\n")
+
+            # 构造：状态函数
+            # pylint: disable=C0301
+            f.writelines([
+                f"def s{i}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
+                f"    {VAR_MOVE_ACTION}=SH{i}[{PARAM_TERMINAL}.{TERMINAL_SYMBOL_ID_NAME}]\n",
+                f"    return {VAR_MOVE_ACTION}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL})\n",
+                "\n",
+                "\n"
+            ])
 
     # ------------------------------ 【构造】状态 + 非终结符 > GOTO 状态的字典 ------------------------------
-    source_script.append("S = {")
+    f.write("S = {\n")
     for i in range(n_status):
         for j in range(parser.grammar.n_terminal, parser.grammar.n_symbol):
-            action: ActionBase = table[i][j]
+            action = table[i][j]
             if isinstance(action, ActionGoto):
-                source_script.append(f"    ({i}, {j}): {action.status}, ")
-    source_script.append("}")
-    source_script.append("")
-    source_script.append("")
+                f.write(f"    ({i},{j}):{action.status},\n")
+    f.write("}\n")
+    f.write("\n")
+    f.write("\n")
 
     # ------------------------------ 【构造】状态 > 状态函数的字典 ------------------------------
-    source_script.append("H = {")
+    f.write("H = {\n")
     for i in range(n_status):
-        source_script.append(f"    {i}: s{i},")
-    source_script.append("}")
-    source_script.append("")
-    source_script.append("")
+        status_id = status_id_to_code_hash[i]
+        f.write(f"    {i}: s{status_id},\n")
+    f.write("}\n")
+    f.write("\n")
+    f.write("\n")
 
     # ------------------------------ 【构造】主函数 ------------------------------
-    source_script.extend([
-        "def parse(lexical_iterator: ms_parser.lexical.LexicalBase):",
-        f"    {STATUS_STACK_PARAM_NAME} = [{parser.entrance_status_id}]",
-        f"    {SYMBOL_STACK_PARAM_NAME} = []",
-        "",
-        f"    action = s{parser.entrance_status_id}",
-        "    terminal = lexical_iterator.lex()",
-        "    next_terminal = False",
-        "    try:",
-        "        while action:",
-        "            if next_terminal is True:",
-        "                terminal = lexical_iterator.lex()",
-        f"            action, next_terminal = action({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal)",
-        "    except KeyError as e:",
-        "        next_terminal_list = []",
-        "        for _ in range(10):",
-        "            if terminal.is_end:",
-        "                break",
-        f"            next_terminal_list.append(terminal.{TERMINAL_SYMBOL_VALUE_NAME})",
-        "            terminal = lexical_iterator.lex()",
-        "        next_terminal_text = \"\".join(next_terminal_list)",
-        "        raise KeyError(\"解析失败:\", next_terminal_text) from e",
-        "",
-        f"    return {SYMBOL_STACK_PARAM_NAME}[0]",
-        "",
-    ])
+    f.write(f"""
+def parse(lexical_iterator: ms_parser.lexical.LexicalBase):
+    {PARAM_STATUS_STACK} = [{parser.entrance_status_id}]
+    {PARAM_SYMBOL_STACK} = []
 
-    return source_script
+    action = s{parser.entrance_status_id}
+    {PARAM_TERMINAL} = lexical_iterator.lex()
+    next_terminal = False
+    try:
+        while action:
+            if next_terminal is True:
+                {PARAM_TERMINAL} = lexical_iterator.lex()
+            action, next_terminal = action({PARAM_STATUS_STACK}, {PARAM_SYMBOL_STACK}, {PARAM_TERMINAL})
+    except KeyError as e:
+        next_terminal_list = []
+        for _ in range(10):
+            if {PARAM_TERMINAL}.is_end:
+                break
+            next_terminal_list.append({PARAM_TERMINAL}.{TERMINAL_SYMBOL_VALUE_NAME})
+            {PARAM_TERMINAL} = lexical_iterator.lex()
+        next_terminal_text = \"\".join(next_terminal_list)
+        raise KeyError(\"解析失败:\", next_terminal_text) from e
+
+    return {PARAM_SYMBOL_STACK}[0]
+""")
 
 
 if __name__ == "__main__":
@@ -429,10 +405,10 @@ if __name__ == "__main__":
     ).build()
     parser_ = ParserLALR1(grammar)
 
-    source_code_ = compile_lalr1(parser_, [])
+    source_code_ = compress_compile_lalr1(parser_, [])
     print("")
     print("------------------------------ 编译结果 ------------------------------")
     print("")
     print("\n".join(source_code_))
 
-    # exec("\n".join(source_code_))
+    LOGGER.info("[Write] END")
