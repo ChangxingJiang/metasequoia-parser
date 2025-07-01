@@ -173,7 +173,6 @@ class ParserLALR1(ParserBase):
 
         # LR(1) 项目 ID 到组合 ID 的映射
         self.lr1_id_to_cid_hash: List[int] = []
-        self.ah_id_no_lookahead_to_cid_hash: Dict[int, int] = {}
 
         # LR(1) 项目 ID 到展望符的映射
         self.lr1_id_to_lookahead_hash: List[int] = []
@@ -384,9 +383,6 @@ class ParserLALR1(ParserBase):
 
         ah_id = lr0.ah_id
         self.lr1_id_to_cid_hash.append(self.create_ah_id_lookahead_combine(ah_id, lookahead))
-
-        # 添加 lookahead 为空的 cid
-        self.ah_id_no_lookahead_to_cid_hash[ah_id] = self.create_ah_id_lookahead_combine(ah_id, self.grammar.n_terminal)
 
         self.lr1_id_to_next_symbol_next_lr1_id_hash.append((lr0.next_symbol, next_lr1_id))
 
