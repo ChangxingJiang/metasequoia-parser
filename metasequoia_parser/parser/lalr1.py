@@ -167,15 +167,9 @@ class ParserLALR1(ParserBase):
         # LR(1) 项目 ID 到指向的 LR(0) 项目 ID 的映射
         self.lr1_id_to_lr0_id_hash: List[int] = []
 
-        # 查询组合 ID 到句柄之后的符号列表的唯一 ID 与展望符的组合的唯一 ID 的映射
-        self.cid_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
-        self.ah_id_and_lookahead_to_cid_hash: Dict[Tuple[int, int], int] = {}  # 用于构造唯一 ID
-
-        # LR(1) 项目 ID 到组合 ID 的映射
-        self.lr1_id_to_cid_hash: List[int] = []
-
         # LR(1) 项目 ID 到展望符的映射
         self.lr1_id_to_lookahead_hash: List[int] = []
+        self.lr1_id_to_ah_id_and_lookahead_list: List[Tuple[int, int]] = []
 
         # LR(1) 项目 ID 到后继符号及后继 LR(1) 项目 ID
         self.lr1_id_to_next_symbol_next_lr1_id_hash: List[Tuple[int, int]] = []
@@ -381,20 +375,10 @@ class ParserLALR1(ParserBase):
         self.lr1_id_to_lr0_id_hash.append(lr0_id)
         self.lr1_id_to_lookahead_hash.append(lookahead)
 
-        ah_id = lr0.ah_id
-        self.lr1_id_to_cid_hash.append(self.create_ah_id_lookahead_combine(ah_id, lookahead))
-
+        self.lr1_id_to_ah_id_and_lookahead_list.append((lr0.ah_id, lookahead))
         self.lr1_id_to_next_symbol_next_lr1_id_hash.append((lr0.next_symbol, next_lr1_id))
 
         return lr1_id
-
-    def create_ah_id_lookahead_combine(self, ah_id: int, lookahead: int) -> int:
-        if (ah_id, lookahead) in self.ah_id_and_lookahead_to_cid_hash:
-            return self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)]
-        cid = len(self.ah_id_and_lookahead_to_cid_hash)
-        self.ah_id_and_lookahead_to_cid_hash[(ah_id, lookahead)] = cid
-        self.cid_to_ah_id_and_lookahead_list.append((ah_id, lookahead))
-        return cid
 
     def cal_nonterminal_all_start_terminal(self, symbol_id_list: List[int]) -> Dict[int, Set[int]]:
         """计算每个非终结符中，所有可能的开头终结符
@@ -452,9 +436,8 @@ class ParserLALR1(ParserBase):
         """根据入口项目以及非标识符对应开始项目的列表，使用广度优先搜索，构造所有核心项目到项目集闭包的映射，同时构造项目集闭包之间的关联关系"""
 
         # 【性能设计】初始化方法中频繁使用的类属性，以避免重复获取类属性
-        cid_to_ah_id_and_lookahead_list = self.cid_to_ah_id_and_lookahead_list
-        lr1_id_to_cid_hash = self.lr1_id_to_cid_hash
         lr1_id_to_next_symbol_next_lr1_id_hash = self.lr1_id_to_next_symbol_next_lr1_id_hash
+        lr1_id_to_ah_id_and_lookahead_list = self.lr1_id_to_ah_id_and_lookahead_list
         n_terminal = self.grammar.n_terminal  # 【性能设计】提前获取需频繁使用的 grammar 中的常量，以减少调用次数
 
         # 根据入口项的 LR(0) 项构造 LR(1) 项
@@ -464,7 +447,7 @@ class ParserLALR1(ParserBase):
         visited_2 = {(0, init_lr1_id)}
         visited_1 = {0}
         visited_3 = set()  # 已经访问的 closure_id 与 ah_id 的组合
-        visited_4 = set()  # 已经访问的 closure_id 与 cid 的组合
+        visited_4 = set()  # 已经访问的 closure_id、ah_id 与 lookahead 的组合
         visited_5 = set()  # 已经访问的 next_closure_id 与 ah_id 的组合
         visited_6 = set()  # 已经访问的 closure_id 和 lr1_id 的组合
         queue_1 = collections.deque([0])
@@ -505,16 +488,16 @@ class ParserLALR1(ParserBase):
             closure_other = set()
 
             # 初始化广度优先搜索的第 1 批节点
-            cid_list = [lr1_id_to_cid_hash[lr1_id] for lr1_id in lr1_id_tuple]
-            for cid in cid_list:
-                visited_4.add((closure_id, cid))
-            queue = collections.deque(cid_list)
+            combine_list = [lr1_id_to_ah_id_and_lookahead_list[lr1_id] for lr1_id in lr1_id_tuple]
+            for ah_id, lookahead in combine_list:
+                visited_4.add((closure_id, ah_id, lookahead))
+            queue = collections.deque(combine_list)
 
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【开始】 ------------------------------
 
             # 广度优先搜索所有的等价项目组
             while queue:
-                sub_ah_id, sub_lookahead = cid_to_ah_id_and_lookahead_list[queue.popleft()]
+                sub_ah_id, sub_lookahead = queue.popleft()
 
                 # 如果是规约项目，则一定不存在等价项目组，跳过该项目即可
                 if sub_ah_id == 0:
@@ -560,10 +543,10 @@ class ParserLALR1(ParserBase):
                 # 【性能设计】在这里没有使用更 Pythonic 的批量操作，是因为批量操作会至少创建 2 个额外的集合，且会额外执行一次哈希计算，这带来的外性能消耗超过了 Python 循环和判断的额外消耗
                 for symbol, lookahead in sub_lr1_id_set:
                     for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
-                        new_cid = lr1_id_to_cid_hash[sub_lr1_id]
-                        if (closure_id, new_cid) not in visited_4:
-                            visited_4.add((closure_id, new_cid))
-                            queue.append(new_cid)
+                        sub_ah_id, sub_lookahead = lr1_id_to_ah_id_and_lookahead_list[sub_lr1_id]
+                        if (closure_id, sub_ah_id, sub_lookahead) not in visited_4:
+                            visited_4.add((closure_id, sub_ah_id, sub_lookahead))
+                            queue.append((sub_ah_id, sub_lookahead))
 
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【结束】 ------------------------------
 
