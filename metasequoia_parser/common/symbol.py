@@ -57,6 +57,11 @@ class Symbol(abc.ABC):
         return self._value
 
     @property
+    def v(self) -> Any:
+        """返回符号的实际值（等价于 symbol_value 的别名）"""
+        return self._value
+
+    @property
     @abc.abstractmethod
     def is_terminal(self) -> bool:
         """如果符号为终结符则返回 True，否则返回 False"""

@@ -27,6 +27,13 @@ from metasequoia_parser.common import TerminalType
 from metasequoia_parser.common.grammar import GGroup, GRule, GrammarBuilder
 from metasequoia_parser.parser.lalr1 import ParserLALR1
 
+ACTION_SHIFT_FUNCTION_NAME = "h"  # 移进函数名称
+ACTION_RETURN_VALUE_NAME = "r"  # 规约函数名称
+STATUS_STACK_PARAM_NAME = "a"  # 状态栈参数名称
+SYMBOL_STACK_PARAM_NAME = "b"  # 对象栈参数名称
+TERMINAL_PARAM_NAME = "c"  # 终结符参数名称
+TERMINAL_SYMBOL_VALUE_NAME = "v"  # 终结符实际值值的参数名称（在 metasequoia_parser/common/symbol.py 中定义）
+
 
 class CompileError(Exception):
     """编译错误"""
@@ -147,7 +154,7 @@ def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
             continue
 
         # 将参数名修改为 symbol_stack（直接从符号栈中获取）
-        node_value.id = "s2"
+        node_value.id = SYMBOL_STACK_PARAM_NAME
 
         # 将切片器中的正数改为负数
         if not isinstance(node_slice, ast.Constant):
@@ -189,7 +196,7 @@ def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]
                 continue
 
             # 将参数名修改为 symbol_stack（直接从符号栈中获取）
-            node_value.id = "s2"
+            node_value.id = SYMBOL_STACK_PARAM_NAME
 
             # 将切片器中的正数改为负数
             if not isinstance(node_slice, ast.Constant):
@@ -228,8 +235,6 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
     # 最终生成的源码列表
     source_script.extend([
         "",
-        "from typing import Any, Callable, List, Optional, Tuple",
-        "",
         "import metasequoia_parser as ms_parser",
         "",
     ])
@@ -251,12 +256,12 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
             if isinstance(action, ActionShift):
                 if action.status not in built_shift_action:
                     built_shift_action.add(action.status)
-                    function_name = f"as{action.status}"
+                    function_name = f"{ACTION_SHIFT_FUNCTION_NAME}{action.status}"
                     # pylint: disable=C0301
                     source_script.extend([
-                        f"def {function_name}(s1, s2, terminal):",
-                        f"    s1.append({action.status})",
-                        "    s2.append(terminal.symbol_value)",
+                        f"def {function_name}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal):",
+                        f"    {STATUS_STACK_PARAM_NAME}.append({action.status})",
+                        f"    {SYMBOL_STACK_PARAM_NAME}.append(terminal.{TERMINAL_SYMBOL_VALUE_NAME})",
                         f"    return s{action.status}, True",
                         "",
                         "",
@@ -285,23 +290,23 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
                 n_param = action.n_param
                 # pylint: disable=C0301
                 source_script.append(
-                    f"def {function_name}(s1, s2, _):"
+                    f"def {function_name}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, _):"
                 )
                 for source_row in compile_reduce_function(reduce_function, n_param):
                     source_script.append(f"    {source_row}")
                 # pylint: disable=C0301
                 source_script.append(
-                    f"    n = S[(s1[-{n_param + 1}], {nonterminal_id})]"
+                    f"    n = S[({STATUS_STACK_PARAM_NAME}[-{n_param + 1}], {nonterminal_id})]"
                 )
                 if n_param > 0:
                     source_script.extend([
-                        f"    s2[-{n_param}:] = [v]",
-                        f"    s1[-{n_param}:] = [n]",
+                        f"    {SYMBOL_STACK_PARAM_NAME}[-{n_param}:] = [v]",
+                        f"    {STATUS_STACK_PARAM_NAME}[-{n_param}:] = [n]",
                     ])
                 else:
                     source_script.extend([
-                        f"    s2.append(v)",
-                        f"    s1.append(n)",
+                        f"    {SYMBOL_STACK_PARAM_NAME}.append(v)",
+                        f"    {STATUS_STACK_PARAM_NAME}.append(n)",
                     ])
 
                 source_script.extend([
@@ -326,7 +331,7 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
         for j in range(parser.grammar.n_terminal):
             action: ActionBase = table[i][j]
             if isinstance(action, ActionShift):
-                function_name = f"as{action.status}"
+                function_name = f"{ACTION_SHIFT_FUNCTION_NAME}{action.status}"
             elif isinstance(action, ActionReduce):
                 nonterminal_id = action.reduce_name
                 reduce_function = action.reduce_function
@@ -344,9 +349,9 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
         # 构造：状态函数
         # pylint: disable=C0301
         source_script.extend([
-            f"def s{i}(s1, s2, terminal):",
+            f"def s{i}({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal):",
             f"    move_action = SH{i}[terminal.symbol_id]",
-            "    return move_action(s1, s2, terminal)",
+            f"    return move_action({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal)",
             "",
             ""
         ])
@@ -373,8 +378,8 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
     # ------------------------------ 【构造】主函数 ------------------------------
     source_script.extend([
         "def parse(lexical_iterator: ms_parser.lexical.LexicalBase):",
-        f"    s1 = [{parser.entrance_status_id}]",
-        "    s2 = []",
+        f"    {STATUS_STACK_PARAM_NAME} = [{parser.entrance_status_id}]",
+        f"    {SYMBOL_STACK_PARAM_NAME} = []",
         "",
         f"    action = s{parser.entrance_status_id}",
         "    terminal = lexical_iterator.lex()",
@@ -383,18 +388,18 @@ def compress_compile_lalr1(parser: ParserLALR1, import_list: List[str], debug: b
         "        while action:",
         "            if next_terminal is True:",
         "                terminal = lexical_iterator.lex()",
-        "            action, next_terminal = action(s1, s2, terminal)",
+        f"            action, next_terminal = action({STATUS_STACK_PARAM_NAME}, {SYMBOL_STACK_PARAM_NAME}, terminal)",
         "    except KeyError as e:",
         "        next_terminal_list = []",
         "        for _ in range(10):",
         "            if terminal.is_end:",
         "                break",
-        "            next_terminal_list.append(terminal.symbol_value)",
+        f"            next_terminal_list.append(terminal.{TERMINAL_SYMBOL_VALUE_NAME})",
         "            terminal = lexical_iterator.lex()",
         "        next_terminal_text = \"\".join(next_terminal_list)",
         "        raise KeyError(\"解析失败:\", next_terminal_text) from e",
         "",
-        "    return s2[0]",
+        f"    return {SYMBOL_STACK_PARAM_NAME}[0]",
         "",
     ])
 
