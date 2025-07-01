@@ -6,6 +6,7 @@ FN_PREFIX_SHIFT = "h"  # 移进函数名称前缀
 FN_PREFIX_REDUCE = "r"  # 规约函数名称前缀
 FN_NAME_ACCEPT = "p"  # 接受函数名称
 FN_NAME_ERROR = "e"  # 错误函数名称（实际不创建）
+FN_PREFIX_STATUS = "s"  # 状态函数名称前缀
 
 PARAM_STATUS_STACK = "a"  # 状态栈参数名称
 PARAM_SYMBOL_STACK = "b"  # 对象栈参数名称
