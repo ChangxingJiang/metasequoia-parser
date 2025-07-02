@@ -248,6 +248,8 @@ class Lalr1Compiler:
         new_status = list(self.goto_hash[action.reduce_name].values())[0]  # 新的状态
         new_status_code = self.status_id_to_code_hash[new_status]
 
+        symbol_set_var_name = write_symbol_set(self.f, self.goto_hash[action.reduce_name])
+
         # 添加规约行为函数
         n_param = action.n_param
         self.f.write(
@@ -255,6 +257,7 @@ class Lalr1Compiler:
         )
         for source_row in compile_reduce_function(action.reduce_function, n_param):
             self.f.write(f"    {source_row}\n")
+        self.f.write(f"    assert {PARAM_STATUS_STACK}[-{n_param + 1}] in {symbol_set_var_name}\n")
         if n_param > 0:
             self.f.writelines([
                 f"    {PARAM_SYMBOL_STACK}[-{n_param}:]=[v]\n",
