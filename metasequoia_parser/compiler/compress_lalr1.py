@@ -53,10 +53,10 @@ def create_action_shift_function_name(status: int) -> str:
     return ACTION_SHIFT_FUNCTION_CODE_HASH[status]
 
 
+# ---------------------------------------- 【名称构造器】规约函数名称 ----------------------------------------
+
 ACTION_REDUCE_CODE_HASH = {}
 
-
-# ---------------------------------------- 【名称构造器】规约函数名称 ----------------------------------------
 
 def create_action_reduce_function_name(symbol: int, function: Callable) -> str:
     """创建规约函数名称
@@ -163,34 +163,38 @@ def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):
 # ---------------------------------------- 【代码生成】符号 ID 的集合 ----------------------------------------
 
 
-GLOBAL_VARIABLE_SYMBOL_SET_HASH = {}
+GLOBAL_VARIABLE_INT_SET_HASH = {}
 
 
-def write_symbol_set(f: TextIO, symbol_id_set: Iterable[int]) -> str:
-    """写出符号 ID 的集合，并返回符号集合的变量名
+def write_int_set(f: TextIO, int_set: Iterable[int]) -> str:
+    """【代码生成】定义符号 ID 或状态 ID 的集合，并返回构造的 Python 集合的变量名
 
-    E1 = {1,2,3}
+    输入：{1, 2, 3}
+    构造：E1={1,2,3}
+    返回：E1
 
     Parameters
     ----------
     f: TextIO
         输出文件对象
-    symbol_id_set: Set[int]
-        符号 ID 的集合
+    int_set: Set[int]
+        符号 ID 或状态 ID 的集合
 
     Returns
     -------
     str
         符号集合的变量名
     """
-    unique_code = tuple(sorted(symbol_id_set))
-    if unique_code not in GLOBAL_VARIABLE_SYMBOL_SET_HASH:
-        code = dec_to_base36(len(GLOBAL_VARIABLE_SYMBOL_SET_HASH))  # 计算变量序号
+    unique_code = tuple(sorted(int_set))
+    if unique_code not in GLOBAL_VARIABLE_INT_SET_HASH:
+        code = dec_to_base36(len(GLOBAL_VARIABLE_INT_SET_HASH))  # 计算变量序号
         variable_name = f"{VAR_PREFIX_SYMBOL_SET}{code}"  # 构造变量名
         variable_value = ",".join([str(symbol_id) for symbol_id in unique_code])  # 构造变量值
-        f.write(f"{variable_name}={{{variable_value}}}\n")  # 写出变量名的定义
-        GLOBAL_VARIABLE_SYMBOL_SET_HASH[unique_code] = variable_name
-    return GLOBAL_VARIABLE_SYMBOL_SET_HASH[unique_code]
+        f.write(f"""
+{variable_name}={{{variable_value}}}
+""")  # 写出变量名的定义
+        GLOBAL_VARIABLE_INT_SET_HASH[unique_code] = variable_name
+    return GLOBAL_VARIABLE_INT_SET_HASH[unique_code]
 
 
 class Lalr1Compiler:
@@ -198,6 +202,7 @@ class Lalr1Compiler:
 
     def __init__(self, f: TextIO, parser: ParserLALR1, import_list: List[str]):
         """初始化
+
         Parameters
         ----------
         f : TextIO
@@ -236,41 +241,130 @@ class Lalr1Compiler:
                 visited_status_hash[status_tuple] = i
             self.status_id_to_code_hash[i] = visited_status_hash[status_tuple]
 
+        # 初始化
+        self._cache_write_reduce_status_hash = {}
+
     def write_reduce_function_mode_1(self, action: ActionReduce):
-        """写出第 1 种格式的 Reduce 函数：无论之前状态如何，都转移到相同的状态
+        """【代码生成】写出第 1 种格式的 Reduce 函数：无论之前状态如何，都转移到相同的状态
 
         Parameters
         ----------
         action: ActionReduce
             规约行为
         """
-        function_name = create_action_reduce_function_name(action.reduce_name, action.reduce_function)
-        new_status = list(self.goto_hash[action.reduce_name].values())[0]  # 新的状态
-        new_status_code = self.status_id_to_code_hash[new_status]
-
-        symbol_set_var_name = write_symbol_set(self.f, self.goto_hash[action.reduce_name])
-
-        # 添加规约行为函数
+        symbol = action.reduce_name
+        function = action.reduce_function
         n_param = action.n_param
+
+        # 计算将转移到的新状态的状态处理函数名
+        new_status_id = list(set(self.goto_hash[symbol].values()))[0]
+        new_status_code = self.status_id_to_code_hash[new_status_id]
+
+        # 计算规约函数名
+        function_name = create_action_reduce_function_name(symbol, function)
+
+        # 构造状态验证集
+        set_var_name = write_int_set(self.f, self.goto_hash[symbol])
+
+        # 解析规约函数，重新构造 Python 代码
+        function_row_list = compile_reduce_function(function, n_param)
+        function_row_list_source = "\n    ".join(function_row_list)
+
+        # 计算符号栈和状态栈的处理语句
+        if n_param > 0:
+            process_symbol_stack = f"{PARAM_SYMBOL_STACK}[-{n_param}:]=[v]"
+            process_status_stack = f"{PARAM_STATUS_STACK}[-{n_param}:]=[{new_status_id}]"
+        else:
+            process_symbol_stack = f"{PARAM_SYMBOL_STACK}.append(v)"
+            process_status_stack = f"{PARAM_STATUS_STACK}.append({new_status_id})"
+
+        # 生成规约函数代码
+        self.f.write(f"""
+def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},_):
+    {function_row_list_source}
+    assert {PARAM_STATUS_STACK}[-{n_param + 1}] in {set_var_name}
+    {process_symbol_stack}
+    {process_status_stack}
+    return s{new_status_code},False
+""")
+
+    def write_reduce_status_hash(self, status_hash: Dict[int, int]):
+        """【代码生成】构造规约函数中旧状态到新状态的映射表（Python 字典），并返回 Python 字典的变量名"""
+        unique_code = tuple(sorted(status_hash.items()))
+        if unique_code not in self._cache_write_reduce_status_hash:
+            variable_name_code = dec_to_base36(len(self._cache_write_reduce_status_hash))  # 计算变量序号
+            self._cache_write_reduce_status_hash[unique_code] = f"{VAR_PREFIX_REDUCE_STATUS_HASH}{variable_name_code}"
+        return self._cache_write_reduce_status_hash[unique_code]
+
+    def final_write_reduce_status_hash(self):
+        for unique_code, var_name in self._cache_write_reduce_status_hash.items():
+            n_item = len(unique_code)  # 哈希表中的元素数量
+
+            # 统计转移到每种状态的符号数量
+            grouped_item_hash = collections.defaultdict(list)
+            for key, value in unique_code:
+                grouped_item_hash[value].append(key)
+
+            # 计算需要通过集合添加的符号：绝对值超过 3 且大于等于 50%
+            big_item_set = {value for value, key_list in grouped_item_hash.items()
+                            if len(key_list) >= 3 and len(key_list) * 2 >= n_item}
+
+            self.f.write(f"{var_name}={{")
+            for old_status_id, new_status_id in unique_code:
+                if new_status_id not in big_item_set:
+                    new_status_code = self.status_id_to_code_hash[new_status_id]
+                    self.f.write(f"{old_status_id}:({new_status_id},s{new_status_code}),")
+            self.f.write("}\n")
+
+            # 补充通过集合添加的符号
+            for new_status_id in big_item_set:
+                new_status_code = self.status_id_to_code_hash[new_status_id]
+                symbol_set_var_name = write_int_set(self.f, grouped_item_hash[new_status_id])
+                self.f.write(f"{var_name}.update({{v:({new_status_id},s{new_status_code}) "
+                             f"for v in {symbol_set_var_name}}})\n")
+
+    def write_reduce_function_mode_2(self, action: ActionReduce):
+        """写出第 2 种格式的 Reduce 函数：针对之前状态不同，转移到不同的状态
+
+        Parameters
+        ----------
+        action: ActionReduce
+            规约行为
+        """
+        symbol = action.reduce_name
+        function = action.reduce_function
+        n_param = action.n_param
+
+        # 计算规约函数名
+        function_name = create_action_reduce_function_name(symbol, function)
+
+        # 解析规约函数，重新构造 Python 代码
+        function_row_list = compile_reduce_function(function, n_param)
+        function_row_list_source = "\n    ".join(function_row_list)
+
+        # 构造映射信息
+        hash_var_name = self.write_reduce_status_hash(self.goto_hash[symbol])
+
         self.f.write(
             f"def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},_):\n"
         )
-        for source_row in compile_reduce_function(action.reduce_function, n_param):
-            self.f.write(f"    {source_row}\n")
-        self.f.write(f"    assert {PARAM_STATUS_STACK}[-{n_param + 1}] in {symbol_set_var_name}\n")
+        self.f.write(f"    {function_row_list_source}\n")
+        self.f.write(
+            f"    n,k={hash_var_name}[{PARAM_STATUS_STACK}[-{n_param + 1}]]\n"
+        )
         if n_param > 0:
             self.f.writelines([
                 f"    {PARAM_SYMBOL_STACK}[-{n_param}:]=[v]\n",
-                f"    {PARAM_STATUS_STACK}[-{n_param}:]=[{new_status}]\n",
+                f"    {PARAM_STATUS_STACK}[-{n_param}:]=[n]\n",
             ])
         else:
             self.f.writelines([
                 f"    {PARAM_SYMBOL_STACK}.append(v)\n",
-                f"    {PARAM_STATUS_STACK}.append({new_status})\n",
+                f"    {PARAM_STATUS_STACK}.append(n)\n",
             ])
 
         self.f.writelines([
-            f"    return s{new_status_code},False\n",
+            f"    return k,False\n",
             "\n",
             "\n"
         ])
@@ -311,7 +405,6 @@ class Lalr1Compiler:
                     write_action_shift(f, self.status_id_to_code_hash, action)
 
         # ------------------------------ 【构造】规约行为函数 ------------------------------
-        finish_goto_symbol_set = set()  # 已直接添加 GOTO 信息，不需要映射的集合
         reduce_function_hash = set()
         for i in range(n_status):
             for j in range(parser.grammar.n_terminal):
@@ -326,41 +419,10 @@ class Lalr1Compiler:
                     reduce_function_hash.add((nonterminal_id, reduce_function))
 
                     # 生成规约行为函数的名称
-                    if len(self.goto_hash[nonterminal_id].values()) == 1:
+                    if len(set(self.goto_hash[nonterminal_id].values())) == 1:
                         self.write_reduce_function_mode_1(action)
-                        finish_goto_symbol_set.add(nonterminal_id)
-                        continue
-
-                    function_name = create_action_reduce_function_name(nonterminal_id, reduce_function)
-
-                    # 添加规约行为函数
-                    n_param = action.n_param
-                    # pylint: disable=C0301
-                    f.write(
-                        f"def {function_name}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},_):\n"
-                    )
-                    for source_row in compile_reduce_function(reduce_function, n_param):
-                        f.write(f"    {source_row}\n")
-                    # pylint: disable=C0301
-                    f.write(
-                        f"    n=S[({PARAM_STATUS_STACK}[-{n_param + 1}],{nonterminal_id})]\n"
-                    )
-                    if n_param > 0:
-                        f.writelines([
-                            f"    {PARAM_SYMBOL_STACK}[-{n_param}:]=[v]\n",
-                            f"    {PARAM_STATUS_STACK}[-{n_param}:]=[n]\n",
-                        ])
                     else:
-                        f.writelines([
-                            f"    {PARAM_SYMBOL_STACK}.append(v)\n",
-                            f"    {PARAM_STATUS_STACK}.append(n)\n",
-                        ])
-
-                    f.writelines([
-                        f"    return H[n],False\n",
-                        "\n",
-                        "\n"
-                    ])
+                        self.write_reduce_function_mode_2(action)
 
         # ------------------------------ 【构造】接收行为函数 ------------------------------
         # pylint: disable=C0301
@@ -398,7 +460,7 @@ class Lalr1Compiler:
 
             # 【第 2 种状态函数】有大于 1 种可选的终结符，但所有终结符都转移到相同状态
             elif len(set(symbol_function_hash.values())) == 1:
-                symbol_set_var_name = write_symbol_set(f, symbol_function_hash)
+                symbol_set_var_name = write_int_set(f, symbol_function_hash)
                 function_name = list(symbol_function_hash.values())[0]
                 f.writelines([
                     f"def s{i}({PARAM_STATUS_STACK},{PARAM_SYMBOL_STACK},{PARAM_TERMINAL}):\n",
@@ -421,16 +483,16 @@ class Lalr1Compiler:
                                     if len(symbol_id_list) >= 3 and len(symbol_id_list) * 2 >= n_change}
 
                 # 构造直接定义的映射
-                f.write(f"SH{i}={{\n")
+                f.write(f"SH{i}={{")
                 for symbol_id, function_name in symbol_function_hash.items():
                     if function_name not in big_function_set:
-                        f.write(f"    {symbol_id}:{function_name},\n")
+                        f.write(f"{symbol_id}:{function_name},")
                 f.write("}\n")
 
                 # 构造通过集合定义的映射
                 for function_name in big_function_set:
-                    symbol_set_var_name = write_symbol_set(f, function_count[function_name])
-                    f.write(f"SH{i}.update({{v: {function_name} for v in {symbol_set_var_name}}})\n")
+                    symbol_set_var_name = write_int_set(f, function_count[function_name])
+                    f.write(f"SH{i}.update({{v:{function_name} for v in {symbol_set_var_name}}})\n")
 
                 f.write("\n")
                 f.write("\n")
@@ -445,27 +507,8 @@ class Lalr1Compiler:
                     "\n"
                 ])
 
-        # ------------------------------ 【构造】状态 + 非终结符 > GOTO 状态的字典 ------------------------------
-        f.write("S = {\n")
-        for i in range(n_status):
-            for j in range(parser.grammar.n_terminal, parser.grammar.n_symbol):
-                if j in finish_goto_symbol_set:
-                    continue
-                action = table[i][j]
-                if isinstance(action, ActionGoto):
-                    f.write(f"    ({i},{j}):{action.status},\n")
-        f.write("}\n")
-        f.write("\n")
-        f.write("\n")
-
-        # ------------------------------ 【构造】状态 > 状态函数的字典 ------------------------------
-        f.write("H = {\n")
-        for i in range(n_status):
-            status_id = self.status_id_to_code_hash[i]
-            f.write(f"    {i}: s{status_id},\n")
-        f.write("}\n")
-        f.write("\n")
-        f.write("\n")
+        # ------------------------------ 【写入】规约函数的映射字典 ------------------------------
+        self.final_write_reduce_status_hash()
 
         # ------------------------------ 【构造】主函数 ------------------------------
         f.write(f"""

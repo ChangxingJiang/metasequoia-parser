@@ -15,7 +15,7 @@ VAR_MOVE_ACTION = "m"  # move_action 变量名称
 
 VAR_PREFIX_SYMBOL_SET = "E"  # 符号 ID 集合的变量名前缀
 
-TERMINAL_SET_NAME = "R"  # 状态函数：终结符 ID 集合
+VAR_PREFIX_REDUCE_STATUS_HASH = "R"  # 状态函数：状态 ID 到 status 函数的映射表的变量名前缀
 
 TERMINAL_SYMBOL_ID_NAME = "i"  # 终结符 ID 值的参数名称（在 metasequoia_parser/common/symbol.py 中定义）
 TERMINAL_SYMBOL_VALUE_NAME = "v"  # 终结符实际值值的参数名称（在 metasequoia_parser/common/symbol.py 中定义）
