@@ -21,8 +21,6 @@ import collections
 from typing import Callable, Dict, Iterable, List, TextIO
 
 from metasequoia_parser.common import ActionAccept, ActionGoto, ActionReduce, ActionShift
-from metasequoia_parser.common import TerminalType
-from metasequoia_parser.common.grammar import GGroup, GRule, GrammarBuilder
 from metasequoia_parser.compiler.common import dec_to_base36
 from metasequoia_parser.compiler.compile_reduce_function import CompileError, compile_reduce_function
 from metasequoia_parser.compiler.static import *  # pylint: disable=W0401,W0614
@@ -543,35 +541,3 @@ def parse(lexical_iterator: ms_parser.lexical.LexicalBase):
 def compress_compile_lalr1(f: TextIO, parser: ParserLALR1, import_list: List[str], debug: bool = False) -> None:
     compiler = Lalr1Compiler(f, parser, import_list)
     compiler.write()
-
-
-if __name__ == "__main__":
-    grammar = GrammarBuilder(
-        groups=[
-            GGroup.create(
-                name="T",
-                rules=[
-                    GRule.create(symbols=["a", "B", "d"], action=lambda x: f"{x[0]}{x[1]}{x[2]}"),
-                    GRule.create(symbols=[], action=lambda x: "")
-                ]
-            ),
-            GGroup.create(
-                name="B",
-                rules=[
-                    GRule.create(symbols=["T", "b"], action=lambda x: f"{x[0]}{x[1]}"),
-                    GRule.create(symbols=[], action=lambda x: "")
-                ]
-            ),
-        ],
-        terminal_type_enum=TerminalType.create_by_terminal_name_list(["a", "b", "d"]),
-        start="T"
-    ).build()
-    parser_ = ParserLALR1(grammar)
-
-    source_code_ = compress_compile_lalr1(parser_, [])
-    print("")
-    print("------------------------------ 编译结果 ------------------------------")
-    print("")
-    print("\n".join(source_code_))
-
-    LOGGER.info("[Write] END")
