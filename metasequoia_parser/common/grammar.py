@@ -309,6 +309,10 @@ class Grammar:
             sr_priority_list=sr_priority_list,
             terminal_name_id_hash=self._terminal_name_id_hash,
         )
+        # print("移进/规约优先级")
+        # for symbol_id, sr_priority in self._terminal_id_sr_priority_hash.items():
+        #     print(f"{symbol_id}({self._symbol_id_name_hash[symbol_id]}): "
+        #           f"{sr_priority.priority_idx}, {sr_priority.combine_type}")
 
         # 【计算】备选规则（规约非终结符名称、 备选规则 Rule 对象的元组）到 RR 优先级的映射
         self._rule_rr_priority_hash = self._cal_nonterminal_id_rr_priority_hash(

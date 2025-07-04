@@ -134,7 +134,7 @@ class ParserLALR1(ParserBase):
                     f"接受 LR(0) 项目 ID = {self.accept_lr0_id}")
 
         LOGGER.info("[Step 4] START: 根据所有 LR(0) 项目，广度优先搜索计算所有合并后的项目集闭包的核心 LR(0) 项目元组")
-        self.closure_relation: List[Tuple[int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
+        self.closure_relation: List[Tuple[int, int, int, int]] = []  # LR(1) 项目集闭包之间的关联关系
         self.closure_relation_2: Dict[int, Dict[int]] = defaultdict(dict)
         self.closure_key_to_closure_id_hash = self.cal_core_to_item0_set_hash()
         LOGGER.info(f"[Step 4] END: "
@@ -650,11 +650,11 @@ class ParserLALR1(ParserBase):
         n_terminal = self.grammar.n_terminal
 
         # 根据项目集闭包的后继项目，填充 ACTION 表和 GOTO 表
-        for closure_id, next_symbol, next_closure_id in self.closure_relation:
+        for closure_id, next_symbol, next_closure_id, sr_priority_idx in self.closure_relation:
             if next_symbol < n_terminal:
                 # 后继项目为终结符，记录需要填充到 ACTION 表的 Shift 行为
                 self.lr_table[closure_id][next_symbol] = ActionShift(status=next_closure_id)
-                self.lr_sr_priority[closure_id][next_symbol] = self.grammar.get_terminal_sr_priority_idx(next_symbol)
+                self.lr_sr_priority[closure_id][next_symbol] = sr_priority_idx
             else:
                 # 后继项目为非终结符，填充 GOTO 表
                 self.lr_table[closure_id][next_symbol] = ActionGoto(status=next_closure_id)
@@ -685,6 +685,7 @@ class ParserLALR1(ParserBase):
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             next_group = collections.defaultdict(list)
+            next_sr_priority = collections.Counter()
             for lr0_id in chain(closure_core, closure_other):
                 lr0 = self.lr0_list[lr0_id]
                 if len(lr0.after_handle) == 0:
@@ -693,9 +694,11 @@ class ParserLALR1(ParserBase):
                 # 获取核心项目句柄之后的第一个符号
                 next_symbol = lr0.after_handle[0]
                 next_group[next_symbol].append(lr0.next_lr0_id)
+                next_sr_priority[next_symbol] = max(next_sr_priority[next_symbol], lr0.sr_priority_idx)
 
             # 获取每个项目的作为后继项目集闭包的核心项目
             for next_symbol, sub_lr0_id_list in next_group.items():
+                sr_priority_idx = next_sr_priority[next_symbol]
                 next_closure_key: Tuple[int, ...] = tuple(sorted(set(sub_lr0_id_list)))
                 if next_closure_key not in closure_key_to_closure_id_hash:
                     next_closure_id = len(closure_key_to_closure_id_hash)
@@ -704,7 +707,7 @@ class ParserLALR1(ParserBase):
                     next_closure_id = closure_key_to_closure_id_hash[next_closure_key]
 
                 # 记录 LR(1) 项目集闭包之间的前驱 / 后继关系
-                closure_relation.append((closure_id, next_symbol, next_closure_id))
+                closure_relation.append((closure_id, next_symbol, next_closure_id, sr_priority_idx))
                 self.closure_relation_2[closure_id][next_symbol] = next_closure_id
 
                 # 将后继项目集闭包的核心项目元组添加到队列
