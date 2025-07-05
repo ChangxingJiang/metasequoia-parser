@@ -577,7 +577,11 @@ class ParserLALR1(ParserBase):
                         for symbol, lookahead in combine_set:
                             for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
                                 if self._trace_lr1 is not None and sub_lr1_id == self._trace_lr1:
-                                    print(f"LR(1) 项目来源位置 1: symbol={symbol}, lookahead={lookahead}")
+                                    LOGGER.info(f"[trace_lr1] LR(1) 项目来源于自生后继型: "
+                                                f"ah_id={sub_ah_id}, "
+                                                f"after_handle={self._debug_format_symbol_list(after_handle)}, "
+                                                f"symbol={symbol}({self.grammar.get_symbol_name(symbol)}), "
+                                                f"lookahead={lookahead}({self.grammar.get_symbol_name(lookahead)})")
                                 sub_next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
                                 if sub_next_symbol is None:
                                     if (closure_id, sub_lr1_id) not in visited_6:
@@ -590,7 +594,7 @@ class ParserLALR1(ParserBase):
                             and sub_lookahead == self._trace_symbol_lookahead[1]):
                         LOGGER.info(f"[trace_symbol_lookahead] 组合来源位置 2: "
                                     f"ah_id={sub_ah_id}, "
-                                    f"after_handle={self._debug_format_symbol_id_list(after_handle)}, "
+                                    f"after_handle={self._debug_format_symbol_list(after_handle)}, "
                                     f"sub_lookahead={sub_lookahead}")
                     sub_lr1_id_set.add((next_symbol, sub_lookahead))
 
@@ -632,11 +636,7 @@ class ParserLALR1(ParserBase):
 
                     next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
                     if self._trace_lr1 is not None and next_lr1_id == self._trace_lr1:
-                        lr0_id = self.lr1_id_to_lr0_id_hash[sub_lr1_id]
-                        lookahead = self.lr1_id_to_lookahead_hash[sub_lr1_id]
-                        lr0 = self.lr0_list[lr0_id]
-                        print(f"LR(1) 项目来源位置 3: "
-                              f"last_lr1_id={sub_lr1_id}, lr0_id={lr0_id}, lr0={lr0}, lookahead={lookahead}")
+                        LOGGER.info(f"[trace_lr1] 其他 LR(1) 的后继项目: {self._debug_format_lr1(sub_lr1_id)}")
                     if next_symbol is not None:
                         next_closure_id = self.closure_relation_2[closure_id][next_symbol]
                         # 将后继项目集闭包的核心项目元组添加到队列
@@ -663,8 +663,9 @@ class ParserLALR1(ParserBase):
         if (self._trace_reduce is not None
                 and closure_id == self._trace_reduce[0]
                 and lookahead == self._trace_reduce[1]):
-            LOGGER.info(f"[trace_reduce] closure_id={closure_id}, lookahead={lookahead}: "
-                        f"lr0_id={lr0_id}, lr0={lr0}, lookahead={lookahead} lr1_id={lr1_id}")
+            LOGGER.info(
+                f"[trace_reduce] closure_id={closure_id}, lookahead={lookahead}({self.grammar.get_symbol_name(lookahead)}): "
+                f"{self._debug_format_lr0(lr0_id)} lr1_id={lr1_id}")
 
         reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                      n_param=len(lr0.before_handle),
@@ -862,15 +863,40 @@ class ParserLALR1(ParserBase):
 
         return item_list
 
-    def _debug_format_symbol_id_list(self, symbol_id_list: Iterable[int]) -> str:
+    def _debug_format_symbol_list(self, symbol_list: Iterable[int]) -> str:
         """【Debug】格式化符号 ID 的列表
 
         Parameters
         ----------
-        symbol_id_list : Iterable[int]
+        symbol_list : Iterable[int]
             符号 ID 的列表
         """
-        return "[" + ", ".join([
-            f"{self.grammar.get_symbol_name(symbol_id)}({symbol_id})"
-            for symbol_id in symbol_id_list
-        ]) + "]"
+        return "[" + ", ".join([f"{symbol}({self.grammar.get_symbol_name(symbol)})" for symbol in symbol_list]) + "]"
+
+    def _debug_format_lr0(self, lr0_id: int) -> str:
+        """【Debug】格式化 LR(0) 项目的 ID
+
+        Parameters
+        ----------
+        lr0_id : int
+            LR(0) 项目的 ID
+        """
+        lr0 = self.lr0_list[lr0_id]
+        symbol = lr0.nonterminal_id
+        symbol_name = self.grammar.get_symbol_name(symbol)
+        before_handle = " ".join([f"{symbol}({self.grammar.get_symbol_name(symbol)})" for symbol in lr0.before_handle])
+        after_handle = " ".join([f"{symbol}({self.grammar.get_symbol_name(symbol)})" for symbol in lr0.after_handle])
+        return f"LR(0)={lr0_id}: {symbol}({symbol_name})->{before_handle}·{after_handle}"
+
+    def _debug_format_lr1(self, lr1_id: int) -> str:
+        """【Debug】格式化 LR(1) 项目的 ID
+
+        Parameters
+        ----------
+        lr1_id : int
+            LR(1) 项目的 ID
+        """
+        lr0_id = self.lr1_id_to_lr0_id_hash[lr1_id]
+        lookahead = self.lr1_id_to_lookahead_hash[lr1_id]
+        lookahead_name = self.grammar.get_symbol_name(lookahead)
+        return f"LR(1)={lr1_id} detail: {self._debug_format_lr0(lr0_id)}, lookahead={lookahead}({lookahead_name})"
