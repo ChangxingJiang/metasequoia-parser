@@ -237,6 +237,12 @@ class GrammarBuilder:
         nonterminal_name_set = {group.name for group in self.groups}
         terminal_name_set = {item.name for item in self.terminal_type_enum}
 
+        # 检查标识符的枚举值是否无重复且连续
+        terminal_id_set = {item.value for item in self.terminal_type_enum}
+        assert min(terminal_id_set) == 0, "终结符枚举值的最小值应该 0 表示结束"
+        assert max(terminal_id_set) == len(terminal_id_set) - 1, "终结符枚举值的最大值应该等于枚举值的数量减 1"
+        assert len(terminal_id_set) == len(terminal_name_set), "终结符枚举值的数量不等于终结符名称的数量"
+
         # 检查是否存在重名的标识符、非标识符
         if len(nonterminal_name_set) < len(self.groups):
             group_name_count = collections.Counter([group.name for group in self.groups])
