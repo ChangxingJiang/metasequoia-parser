@@ -425,13 +425,13 @@ class ParserLALR1(ParserBase):
         nonterminal_start_terminal = collections.defaultdict(set)  # "非终结符名称" 到其 "开头终结符的列表" 的映射
         nonterminal_start_nonterminal = collections.defaultdict(set)  # "非终结符名称" 到其 "开头非终结符的列表" 的映射
         for product in grammar.get_product_list():
+            reduce_symbol = product.nonterminal_id
             for symbol in product.symbol_id_list:
                 if grammar.is_terminal(symbol):
-                    reduce_name = product.nonterminal_id
-                    nonterminal_start_terminal[reduce_name].add(symbol)
+                    nonterminal_start_terminal[reduce_symbol].add(symbol)
+                    break
                 else:
-                    reduce_name = product.nonterminal_id
-                    nonterminal_start_nonterminal[reduce_name].add(symbol)
+                    nonterminal_start_nonterminal[reduce_symbol].add(symbol)
 
                 # 如果当前符号为终结符，或为不允许匹配 %empty 的非终结符，则说明后续符号已不可能再包含开头字符
                 if not grammar.is_maybe_empty(symbol):
