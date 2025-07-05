@@ -535,6 +535,33 @@ def parse(lexical_iterator: ms_parser.lexical.LexicalBase):
     return {PARAM_SYMBOL_STACK}[0]
 """)
 
+        f.write(f"""
+def parse_debug(lexical_iterator: ms_parser.lexical.LexicalBase):
+    {PARAM_STATUS_STACK} = [{parser.entrance_status_id}]
+    {PARAM_SYMBOL_STACK} = []
+
+    action = s{parser.entrance_status_id}
+    {PARAM_TERMINAL} = lexical_iterator.lex()
+    next_terminal = False
+    try:
+        while action:
+            if next_terminal is True:
+                {PARAM_TERMINAL} = lexical_iterator.lex()
+            print(f"状态栈 = {{{PARAM_STATUS_STACK}}}, 符号栈 = {{{PARAM_SYMBOL_STACK}}}, 终结符 = {{{PARAM_TERMINAL}.i.value}}({{{PARAM_TERMINAL}.i.name}}), 行为函数 = {{action.__name__}}")
+            action, next_terminal = action({PARAM_STATUS_STACK}, {PARAM_SYMBOL_STACK}, {PARAM_TERMINAL})
+    except KeyError as e:
+        next_terminal_list = []
+        for _ in range(10):
+            if {PARAM_TERMINAL}.is_end:
+                break
+            next_terminal_list.append({PARAM_TERMINAL}.{TERMINAL_SYMBOL_VALUE_NAME})
+            {PARAM_TERMINAL} = lexical_iterator.lex()
+        next_terminal_text = \"\".join(next_terminal_list)
+        raise KeyError(\"解析失败:\", next_terminal_text) from e
+
+    return {PARAM_SYMBOL_STACK}[0]
+""")
+
         LOGGER.info("[Write] END")
 
 
