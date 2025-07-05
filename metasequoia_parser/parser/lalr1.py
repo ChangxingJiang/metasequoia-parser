@@ -86,19 +86,44 @@ ACCEPT_OR_REDUCE = {ItemType.ACCEPT, ItemType.REDUCE}
 class ParserLALR1(ParserBase):
     """LALR(1) 解析器"""
 
-    def __init__(self, grammar: Grammar, debug: bool = False, profile: bool = False):
+    def __init__(self,
+                 grammar: Grammar,
+                 debug: bool = False,
+                 profile: bool = False,
+                 trace_lr1: Optional[int] = None,
+                 trace_reduce: Optional[Tuple[int, int]] = None,
+                 trace_symbol_lookahead: Optional[Tuple[int, int]] = None,
+                 trace_ah_lookahead: Optional[Tuple[int, int]] = None):
         """
 
         Parameters
         ----------
+        grammar : Grammar
+            文法对象
         debug : bool, default = False
             【调试】是否开启 Debug 模式日志
         profile : Optional[int], default = None
             【调试】如果不为 None 则开启步骤 4 的 cProfile 性能分析，且广度优先搜索的最大撒次数为 profile_4；如果为 None 则不开启性能分析
+        trace_lr1 : Optional[int], default = None
+            【调试】如果不为 None 则在编译过程中追踪 LR(1) 项目的来源，且 trace_lr1 为 LR(1) 项目 ID
+        trace_reduce : Optional[Tuple[int, int]], default = None
+            【调试】如果不为 None 则在编译过程中跟踪规约行为的来源，且 trace_reduce[0] 为状态 ID，trace_reduce[1] 为展望符 ID
+        trace_symbol_lookahead : Optional[Tuple[int, int]], default = None
+            【调试】如果不为 None 则在编译过程中跟踪符号和展望符组合的来源，且 trace_symbol_lookahead[0] 为符号 ID，trace_symbol_lookahead[1] 为展望符 ID
+            符号和展望符的组合，表示该符号的初始项目为目标展望符的 LR(1) 项目组合
+        trace_ah_lookahead : Optional[Tuple[int, int]], default = None
+            【调试】如果不为 None 则在编译过程中跟踪句柄之后符号列表的 ID 和展望符组合的来源，且 trace_ah_lookahead[0] 为句柄之后符号列表的 ID，
+            trace_ah_lookahead[1] 为展望符 ID
         """
         self.profile = profile
         self.grammar = grammar
         self.debug = debug
+
+        # 【调试模式】追踪功能
+        self._trace_lr1 = trace_lr1
+        self._trace_reduce = trace_reduce
+        self._trace_symbol_lookahead = trace_symbol_lookahead
+        self._trace_ah_lookahead = trace_ah_lookahead
 
         # 【调试模式】cProfile 性能分析
         self.profiler = None
@@ -481,6 +506,14 @@ class ParserLALR1(ParserBase):
                             queue_1.append(next_closure_id)
                         visited_2.add((next_closure_id, next_lr1_id))
                         queue_2[next_closure_id].append(next_lr1_id)
+
+                        # 【Debug】追踪 LR(1) 项目来源
+                        if self._trace_lr1 is not None and next_lr1_id == self._trace_lr1:
+                            lr0_id = self.lr1_id_to_lr0_id_hash[sub_lr1_id]
+                            lookahead = self.lr1_id_to_lookahead_hash[sub_lr1_id]
+                            lr0 = self.lr0_list[lr0_id]
+                            print(f"LR(1) 项目来源位置 4: "
+                                  f"last_lr1_id={sub_lr1_id}, lr0_id={lr0_id}, lr0={lr0}, lookahead={lookahead}")
                 else:
                     self.add_lr1_to_closure(closure_id, sub_lr1_id)
 
@@ -491,6 +524,18 @@ class ParserLALR1(ParserBase):
             combine_list = [lr1_id_to_ah_id_and_lookahead_list[lr1_id] for lr1_id in lr1_id_tuple]
             for ah_id, lookahead in combine_list:
                 visited_4.add((closure_id, ah_id, lookahead))
+            if self._trace_ah_lookahead is not None and self._trace_ah_lookahead in combine_list:
+                for lr1_id in lr1_id_tuple:
+                    ah_id, lookahead = lr1_id_to_ah_id_and_lookahead_list[lr1_id]
+                    if self._trace_ah_lookahead != (ah_id, lookahead):
+                        continue
+                    lr0_id = self.lr1_id_to_lr0_id_hash[lr1_id]
+                    lr0 = self.lr0_list[lr0_id]
+                    symbol_name = self.grammar.get_symbol_name(lr0.nonterminal_id)
+                    LOGGER.info(
+                        f"[trace_ah_lookahead] 来源位置 2: "
+                        f"symbol={lr0.nonterminal_id}({symbol_name}), lookahead={lookahead}, lr1_id={lr1_id},"
+                        f"lr0={lr0}, lookahead={lookahead}")
             queue = collections.deque(combine_list)
 
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【开始】 ------------------------------
@@ -514,6 +559,10 @@ class ParserLALR1(ParserBase):
                     continue
 
                 combine_set, need_inherit = self.cal_generated_lookahead_set(sub_ah_id)
+                if (self._trace_symbol_lookahead is not None and self._trace_symbol_lookahead in combine_set):
+                    symbol_list = [(symbol, self.grammar.get_symbol_name(symbol)) for symbol in after_handle]
+                    LOGGER.info(
+                        f"[trace_symbol_lookahead] 组合来源位置 1: ah_id={sub_ah_id}, after_handle={[symbol_list]}")
 
                 sub_lr1_id_set = set()
                 next_closure_id = self.closure_relation_2[closure_id][next_symbol]
@@ -527,6 +576,8 @@ class ParserLALR1(ParserBase):
                     else:
                         for symbol, lookahead in combine_set:
                             for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
+                                if self._trace_lr1 is not None and sub_lr1_id == self._trace_lr1:
+                                    print(f"LR(1) 项目来源位置 1: symbol={symbol}, lookahead={lookahead}")
                                 sub_next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
                                 if sub_next_symbol is None:
                                     if (closure_id, sub_lr1_id) not in visited_6:
@@ -534,6 +585,11 @@ class ParserLALR1(ParserBase):
                                         self.add_lr1_to_closure(closure_id, sub_lr1_id)
 
                 if need_inherit is True:
+                    if (self._trace_symbol_lookahead is not None
+                            and next_symbol == self._trace_symbol_lookahead[0]
+                            and sub_lookahead == self._trace_symbol_lookahead[1]):
+                        LOGGER.info(f"[trace_symbol_lookahead] 组合来源位置 2: "
+                                    f"ah_id={sub_ah_id}, after_handle={after_handle}, sub_lookahead={sub_lookahead}")
                     sub_lr1_id_set.add((next_symbol, sub_lookahead))
 
                 # 将当前项目组匹配的等价项目组添加到所有等价项目组中
@@ -548,12 +604,37 @@ class ParserLALR1(ParserBase):
                             visited_4.add((closure_id, sub_ah_id, sub_lookahead))
                             queue.append((sub_ah_id, sub_lookahead))
 
+                            if (self._trace_ah_lookahead is not None
+                                    and sub_ah_id == self._trace_ah_lookahead[0]
+                                    and sub_lookahead == self._trace_ah_lookahead[1]):
+                                lr0_id = self.lr1_id_to_lr0_id_hash[sub_lr1_id]
+                                lookahead = self.lr1_id_to_lookahead_hash[sub_lr1_id]
+                                lr0 = self.lr0_list[lr0_id]
+                                symbol_name = self.grammar.get_symbol_name(symbol)
+                                LOGGER.info(
+                                    f"[trace_ah_lookahead] 来源位置 1: symbol={symbol}({symbol_name}), lookahead={lookahead}, sub_lr1_id={sub_lr1_id},"
+                                    f"lr0={lr0}, lookahead={lookahead}")
+
             # ------------------------------ 广度优先搜索：计算 LR(1) 项目的项目集闭包【结束】 ------------------------------
 
             # 根据后继项目符号进行分组，计算出每个后继项目集闭包的核心项目元组
             for symbol, lookahead in closure_other:
                 for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
+
+                    # 【Debug】
+                    if self._trace_lr1 is not None and sub_lr1_id == self._trace_lr1:
+                        symbol_name = self.grammar.get_symbol_name(symbol)
+                        lookahead_name = self.grammar.get_symbol_name(lookahead)
+                        LOGGER.info(f"[trace_lr1] LR(1) 项目来源位置 2: "
+                                    f"symbol={symbol}({symbol_name}), lookahead={lookahead}({lookahead_name})")
+
                     next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
+                    if self._trace_lr1 is not None and next_lr1_id == self._trace_lr1:
+                        lr0_id = self.lr1_id_to_lr0_id_hash[sub_lr1_id]
+                        lookahead = self.lr1_id_to_lookahead_hash[sub_lr1_id]
+                        lr0 = self.lr0_list[lr0_id]
+                        print(f"LR(1) 项目来源位置 3: "
+                              f"last_lr1_id={sub_lr1_id}, lr0_id={lr0_id}, lr0={lr0}, lookahead={lookahead}")
                     if next_symbol is not None:
                         next_closure_id = self.closure_relation_2[closure_id][next_symbol]
                         # 将后继项目集闭包的核心项目元组添加到队列
@@ -575,6 +656,13 @@ class ParserLALR1(ParserBase):
         lr0 = self.lr0_list[lr0_id]
         if lr0.next_symbol is not None:
             return
+
+        # 【Debug】跟踪规约行为的来源
+        if (self._trace_reduce is not None
+                and closure_id == self._trace_reduce[0]
+                and lookahead == self._trace_reduce[1]):
+            LOGGER.info(f"[trace_reduce] closure_id={closure_id}, lookahead={lookahead}: "
+                        f"lr0_id={lr0_id}, lr0={lr0}, lookahead={lookahead} lr1_id={lr1_id}")
 
         reduce_action = ActionReduce(reduce_nonterminal_id=lr0.nonterminal_id,
                                      n_param=len(lr0.before_handle),
