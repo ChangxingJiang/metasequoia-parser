@@ -9,7 +9,7 @@ import enum
 from collections import defaultdict
 from functools import lru_cache
 from itertools import chain
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 from metasequoia_parser.common import ActionAccept, ActionError, ActionGoto, ActionReduce, ActionShift
 from metasequoia_parser.common import CombineType
@@ -589,7 +589,9 @@ class ParserLALR1(ParserBase):
                             and next_symbol == self._trace_symbol_lookahead[0]
                             and sub_lookahead == self._trace_symbol_lookahead[1]):
                         LOGGER.info(f"[trace_symbol_lookahead] 组合来源位置 2: "
-                                    f"ah_id={sub_ah_id}, after_handle={after_handle}, sub_lookahead={sub_lookahead}")
+                                    f"ah_id={sub_ah_id}, "
+                                    f"after_handle={self._debug_format_symbol_id_list(after_handle)}, "
+                                    f"sub_lookahead={sub_lookahead}")
                     sub_lr1_id_set.add((next_symbol, sub_lookahead))
 
                 # 将当前项目组匹配的等价项目组添加到所有等价项目组中
@@ -859,3 +861,16 @@ class ParserLALR1(ParserBase):
                     queue.append(new_symbol)
 
         return item_list
+
+    def _debug_format_symbol_id_list(self, symbol_id_list: Iterable[int]) -> str:
+        """【Debug】格式化符号 ID 的列表
+
+        Parameters
+        ----------
+        symbol_id_list : Iterable[int]
+            符号 ID 的列表
+        """
+        return "[" + ", ".join([
+            f"{self.grammar.get_symbol_name(symbol_id)}({symbol_id})"
+            for symbol_id in symbol_id_list
+        ]) + "]"
