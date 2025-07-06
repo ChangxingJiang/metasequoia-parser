@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 from metasequoia_parser.common.symbol import Symbol, TerminalType
 from metasequoia_parser.exceptions import GrammarError
+from metasequoia_parser.utils import LOGGER
 
 __all__ = [
     "Grammar",
@@ -299,12 +300,16 @@ class Grammar:
         # 【初始化】终结符名称到 ID 的映射表（作为 ACTION 表的列下标）
         self._terminal_name_id_hash = self._create_terminal_name_id_hash(terminal_type_enum)
         self._n_terminal = len(self._terminal_name_id_hash)
-        # print("terminal_name_id_hash:", self._terminal_name_id_hash)
+        LOGGER.debug("------------------------------ Terminal List ------------------------------")
+        for symbol_name, symbol_id in self._terminal_name_id_hash.items():
+            LOGGER.debug(f"{symbol_name} = {symbol_id}")
 
         # 【初始化】非终结符名称到 ID 的映射表（作为 GOTO 表的列下标）
         self._nonterminal_name_id_hash = self._create_nonterminal_name_id_hash(group_list, self._n_terminal)
         self._n_nonterminal = len(self._nonterminal_name_id_hash)
-        # print("nonterminal_name_id_hash:", self._nonterminal_name_id_hash)
+        LOGGER.debug("------------------------------ NonTerminal List ------------------------------")
+        for symbol_name, symbol_id in self._nonterminal_name_id_hash.items():
+            LOGGER.debug(f"{symbol_name} = {symbol_id}")
 
         # 【初始化】符号名称（包括非终结符和终结符）到 ID 的映射表（作为 ACTION 表 + GOTO 表的列下标）
         self._symbol_name_id_hash = self._create_symbol_name_id_hash(self._terminal_name_id_hash,
