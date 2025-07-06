@@ -284,7 +284,7 @@ class Grammar:
         combine_type: CombineType = dataclasses.field(kw_only=True, default=CombineType.LEFT)  # 终结符结合方法
 
     # 【常量】入口虚拟符号名称
-    WRAPPER_ENTRANCE_SYMBOL_NAME = "S'"
+    WRAPPER_ENTRANCE_SYMBOL_NAME = "S"
 
     # ------------------------------ 语法类构造方法 ------------------------------
 
@@ -299,10 +299,12 @@ class Grammar:
         # 【初始化】终结符名称到 ID 的映射表（作为 ACTION 表的列下标）
         self._terminal_name_id_hash = self._create_terminal_name_id_hash(terminal_type_enum)
         self._n_terminal = len(self._terminal_name_id_hash)
+        # print("terminal_name_id_hash:", self._terminal_name_id_hash)
 
         # 【初始化】非终结符名称到 ID 的映射表（作为 GOTO 表的列下标）
         self._nonterminal_name_id_hash = self._create_nonterminal_name_id_hash(group_list, self._n_terminal)
         self._n_nonterminal = len(self._nonterminal_name_id_hash)
+        # print("nonterminal_name_id_hash:", self._nonterminal_name_id_hash)
 
         # 【初始化】符号名称（包括非终结符和终结符）到 ID 的映射表（作为 ACTION 表 + GOTO 表的列下标）
         self._symbol_name_id_hash = self._create_symbol_name_id_hash(self._terminal_name_id_hash,
