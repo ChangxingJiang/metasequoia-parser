@@ -632,11 +632,14 @@ class ParserLALR1(ParserBase):
                         symbol_name = self.grammar.get_symbol_name(symbol)
                         lookahead_name = self.grammar.get_symbol_name(lookahead)
                         LOGGER.info(f"[trace_lr1] LR(1) 项目来源位置 2: "
-                                    f"symbol={symbol}({symbol_name}), lookahead={lookahead}({lookahead_name})")
+                                    f"closure_id={closure_id}, "
+                                    f"symbol={symbol}({symbol_name}), "
+                                    f"lookahead={lookahead}({lookahead_name})")
 
                     next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
                     if self._trace_lr1 is not None and next_lr1_id == self._trace_lr1:
-                        LOGGER.info(f"[trace_lr1] 其他 LR(1) 的后继项目: {self._debug_format_lr1(sub_lr1_id)}")
+                        LOGGER.info(f"[trace_lr1] 其他 LR(1) 的后继项目: closure_id={closure_id}, "
+                                    f"{self._debug_format_lr1(sub_lr1_id)}")
                     if next_symbol is not None:
                         next_closure_id = self.closure_relation_2[closure_id][next_symbol]
                         # 将后继项目集闭包的核心项目元组添加到队列
