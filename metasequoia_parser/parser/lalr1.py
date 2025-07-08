@@ -473,7 +473,6 @@ class ParserLALR1(ParserBase):
         visited_1 = {0}
         visited_3 = set()  # 已经访问的 closure_id 与 ah_id 的组合
         visited_4 = set()  # 已经访问的 closure_id、ah_id 与 lookahead 的组合
-        visited_5 = set()  # 已经访问的 next_closure_id 与 ah_id 的组合
         visited_6 = set()  # 已经访问的 closure_id 和 lr1_id 的组合
         queue_1 = collections.deque([0])
         queue_2 = collections.defaultdict(list)
@@ -569,30 +568,15 @@ class ParserLALR1(ParserBase):
 
                 # 如果 closure_id 和 sub_ah_id 相同，即当前状态和句柄后符号均相同，因为自生后继型 LR(1) 项目不依赖展望符，所以不需要重复处理
                 if (closure_id, sub_ah_id) not in visited_3:
-                    if (next_closure_id, sub_ah_id) not in visited_5:
-                        visited_3.add((closure_id, sub_ah_id))
-                        visited_5.add((next_closure_id, sub_ah_id))
-                        sub_lr1_id_set |= combine_set
-                    else:
-                        for symbol, lookahead in combine_set:
-                            for sub_lr1_id in self.get_lr1_id_set_by_combine(symbol, lookahead):
-                                if self._trace_lr1 is not None and sub_lr1_id == self._trace_lr1:
-                                    LOGGER.info(f"[trace_lr1] LR(1) 项目来源于自生后继型: "
-                                                f"ah_id={sub_ah_id}, "
-                                                f"after_handle={self._debug_format_symbol_list(after_handle)}, "
-                                                f"symbol={symbol}({self.grammar.get_symbol_name(symbol)}), "
-                                                f"lookahead={lookahead}({self.grammar.get_symbol_name(lookahead)})")
-                                sub_next_symbol, next_lr1_id = lr1_id_to_next_symbol_next_lr1_id_hash[sub_lr1_id]
-                                if sub_next_symbol is None:
-                                    if (closure_id, sub_lr1_id) not in visited_6:
-                                        visited_6.add((closure_id, sub_lr1_id))
-                                        self.add_lr1_to_closure(closure_id, sub_lr1_id)
+                    visited_3.add((closure_id, sub_ah_id))
+                    sub_lr1_id_set |= combine_set
 
                 if need_inherit is True:
                     if (self._trace_symbol_lookahead is not None
                             and next_symbol == self._trace_symbol_lookahead[0]
                             and sub_lookahead == self._trace_symbol_lookahead[1]):
                         LOGGER.info(f"[trace_symbol_lookahead] 组合来源位置 2: "
+                                    f"closure_id={closure_id}, "
                                     f"ah_id={sub_ah_id}, "
                                     f"after_handle={self._debug_format_symbol_list(after_handle)}, "
                                     f"sub_lookahead={sub_lookahead}")
