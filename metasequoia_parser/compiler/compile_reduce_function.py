@@ -9,6 +9,7 @@ from typing import Callable, List, Union
 
 from metasequoia_parser.common.grammar import GRule
 from metasequoia_parser.compiler.static import *  # pylint: disable=W0401,W0614
+from metasequoia_parser.utils import LOGGER
 
 
 class CompileError(Exception):
@@ -17,6 +18,10 @@ class CompileError(Exception):
 
 def compile_reduce_function(reduce_function: Callable, n_param: int) -> List[str]:
     """将 reduce_function 转换为 Python 源码"""
+    # 获取 reduce_function 的源码位置
+    filename = inspect.getsourcefile(reduce_function)  # 所在文件
+    lineno = inspect.getsourcelines(reduce_function)[1]  # 起始行号
+
     # 获取 reduce_function 的源码，并剔除首尾的空格、英文半角逗号和换行符
     reduce_function_code = inspect.getsource(reduce_function)
     reduce_function_code = reduce_function_code.strip(" ,\n")
@@ -38,36 +43,36 @@ def compile_reduce_function(reduce_function: Callable, n_param: int) -> List[str
 
     tree_node = tree_node_module.body[0]
     try:
-        return _compile_tree_node(tree_node, n_param)
+        return _compile_tree_node(tree_node, n_param, filename, lineno)
     except CompileError as e:
         raise CompileError(f"解析失败的源码: {reduce_function_code}") from e
 
 
-def _compile_tree_node(tree_node: Union[ast.stmt, ast.expr], n_param: int) -> List[str]:
+def _compile_tree_node(tree_node: Union[ast.stmt, ast.expr], n_param: int, filename: str, lineno: int) -> List[str]:
     # pylint: disable=R0911
     # pylint: disable=R0912
     """解析 Python 抽象语法树的节点"""
 
     # 函数定义的形式
     if isinstance(tree_node, ast.FunctionDef):
-        return _compile_function(tree_node, n_param)
+        return _compile_function(tree_node, n_param, filename, lineno)
 
     # 使用赋值表达式定义 lambda 表达式的形式
     if isinstance(tree_node, ast.Assign):
-        return _compile_tree_node(tree_node.value, n_param)
+        return _compile_tree_node(tree_node.value, n_param, filename, lineno)
 
     # 包含类型描述的，通过赋值语句中的 lambda 表达式
     # 样例：DEFAULT_ACTION: Callable[[GrammarActionParams], Any] = lambda x: x[0]
     if isinstance(tree_node, ast.AnnAssign):
-        return _compile_tree_node(tree_node.value, n_param)
+        return _compile_tree_node(tree_node.value, n_param, filename, lineno)
 
     # lambda 表达式形式（可以通过赋值语句中递归触发调用）
     if isinstance(tree_node, ast.Lambda):
-        return _compile_lambda(tree_node, n_param)
+        return _compile_lambda(tree_node, n_param, filename, lineno)
 
     # Expr(value=...) —— 表达式层级（lambda 表达式）
     if isinstance(tree_node, ast.Expr):
-        return _compile_tree_node(tree_node.value, n_param)
+        return _compile_tree_node(tree_node.value, n_param, filename, lineno)
 
     # Call(func=..., args=[...], keywords=[...]) —— 函数调用（lambda 表达式）
     if isinstance(tree_node, ast.Call):
@@ -86,13 +91,13 @@ def _compile_tree_node(tree_node: Union[ast.stmt, ast.expr], n_param: int) -> Li
             if len(args) >= 2:  # 如果使用顺序参数，则应该是第 2 个参数
                 lambda_node = args[1]
                 if isinstance(lambda_node, ast.Lambda):
-                    return _compile_lambda(lambda_node, n_param)
+                    return _compile_lambda(lambda_node, n_param, filename, lineno)
                 raise CompileError("GRule.create 的第 2 个参数不是 lambda 表达式")
             for keyword in keywords:
                 if keyword.arg == "action":
                     lambda_node = keyword.value
                     if isinstance(lambda_node, ast.Lambda):
-                        return _compile_lambda(lambda_node, n_param)
+                        return _compile_lambda(lambda_node, n_param, filename, lineno)
                     raise CompileError("GRule.create 的关键字参数 action 不是 lambda 表达式")
             raise CompileError("GRule.create 函数中没有 action 参数")
 
@@ -102,14 +107,14 @@ def _compile_tree_node(tree_node: Union[ast.stmt, ast.expr], n_param: int) -> Li
                 if keyword.arg == "action":
                     lambda_node = keyword.value
                     if isinstance(lambda_node, ast.Lambda):
-                        return _compile_lambda(lambda_node, n_param)
+                        return _compile_lambda(lambda_node, n_param, filename, lineno)
                     raise CompileError("GRule.create 的关键字参数 action 不是 lambda 表达式")
             raise CompileError("GRule 的初始化方法中没有 action 参数")
 
     raise CompileError(f"未知元素: {ast.dump(tree_node)}")
 
 
-def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
+def _compile_lambda(lambda_node: ast.Lambda, n_param: int, filename: str, lineno:int) -> List[str]:
     """解析 lambda 表达式形式的递归函数"""
     # 获取参数名
     args = lambda_node.args.args
@@ -136,7 +141,9 @@ def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
         if not isinstance(node_slice, ast.Constant):
             raise CompileError("引用参数的切片值不是常量")
         if node_slice.value < 0:
-            raise CompileError("引用参数的切片值只允许使用正数")
+            LOGGER.error(f"引用参数的切片值只允许使用正数: {node_slice.value} ({filename}: {lineno})")
+        if node_slice.value >= n_param:
+            LOGGER.error(f"引用参数的切片值超出范围: {node_slice.value} >= {n_param} ({filename}: {lineno})")
         node_slice.value = -n_param + node_slice.value
 
     # 将 lambda 表达式中的逻辑部分反解析为 Python 源码
@@ -149,7 +156,7 @@ def _compile_lambda(lambda_node: ast.Lambda, n_param: int) -> List[str]:
     return [source_code]
 
 
-def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]:
+def _compile_function(function_node: ast.FunctionDef, n_param: int, filename: str, lineno: int) -> List[str]:
     """解析函数定义形式的递归函数"""
     # 获取参数名
     args = function_node.args.args
@@ -178,7 +185,9 @@ def _compile_function(function_node: ast.FunctionDef, n_param: int) -> List[str]
             if not isinstance(node_slice, ast.Constant):
                 raise CompileError("引用参数的切片值不是常量")
             if node_slice.value < 0:
-                raise CompileError("引用参数的切片值只允许使用正数")
+                LOGGER.error(f"引用参数的切片值只允许使用正数: {node_slice.value} ({filename}: {lineno})")
+            if node_slice.value >= n_param:
+                LOGGER.error(f"引用参数的切片值超出范围: {node_slice.value} >= {n_param} ({filename}: {lineno})")
             node_slice.value = -n_param + node_slice.value
 
         # 如果表达式为 Return 表达式，则将 Return 表达式改为 Assign 表达式
